@@ -612,26 +612,25 @@ local function UpdateButton()
 	UpdateList(list)
 	if InCombatLockdown() then return end -- the secure button can't change in combat
 
+	btn:Show() -- always visible; the text states how much is missing
 	if #list == 0 then -- everybody is buffed
 		btn:SetAttribute("spell", nil)
 		btn:SetAttribute("unit", nil)
-		btn:SetText("All buffs are up")
+		btn:SetText("All good.")
 		btn.iconFrame:Hide()
 		return
 	end
 	local missing = 0
 	for _, e in ipairs(list) do missing = missing + #e.buffs end
-	btn:Show()
+	btn:SetText(missing .. " missing!")
 	if cast then
 		btn:SetAttribute("spell", cast.spell)
 		btn:SetAttribute("unit", cast.unit)
-		btn:SetText(missing .. " missing - " .. cast.buff.label .. (cast.lesser and " (L)" or "") .. " > " .. cast.name)
 		btn.icon:SetTexture(BuffIcon(cast.key))
 		btn.iconFrame:Show()
 	else -- people are missing buffs, but none are in range
 		btn:SetAttribute("spell", nil)
 		btn:SetAttribute("unit", nil)
-		btn:SetText(missing .. " missing - out of range")
 		btn.iconFrame:Hide()
 	end
 end
