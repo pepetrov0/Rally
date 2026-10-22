@@ -245,7 +245,7 @@ local function ShowCellTooltip(cell, row, class)
 	GameTooltip:Show()
 end
 
-local function Cycle(caster, targetClass, dir)
+local function Cycle(caster, targetClass, dir, wholeRow)
 	if not CanEdit(caster) then return end
 	local list = CASTERS.PALADIN -- the window only lists paladins
 	local row = RallyDB.assign[caster]
@@ -254,7 +254,12 @@ local function Cycle(caster, targetClass, dir)
 	for i, k in ipairs(list) do if row[targetClass] == k then idx = i end end
 	idx = idx + dir
 	if idx > #list then idx = 0 elseif idx < 0 then idx = #list end
-	row[targetClass] = idx > 0 and list[idx] or nil
+	local value = idx > 0 and list[idx] or nil
+	if wholeRow then
+		for _, class in ipairs(CLASSES) do row[class] = value end
+	else
+		row[targetClass] = value
+	end
 	Send(caster)
 	Rally_Refresh()
 end
@@ -288,7 +293,7 @@ local function GetRow(i)
 		Skin("cell", b)
 		b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 		b:SetScript("OnClick", function(self, button)
-			Cycle(row.caster, class, button == "RightButton" and -1 or 1)
+			Cycle(row.caster, class, button == "RightButton" and -1 or 1, IsShiftKeyDown())
 		end)
 		row.cells[c] = b
 	end
