@@ -618,11 +618,13 @@ local function UpdateButton()
 		btn:SetAttribute("unit", nil)
 		btn:SetText("All good.")
 		btn.iconFrame:Hide()
+		btn.flash:Hide()
 		return
 	end
 	local missing = 0
 	for _, e in ipairs(list) do missing = missing + #e.buffs end
 	btn:SetText(missing .. " missing!")
+	btn.flash:Show()
 	if cast then
 		btn:SetAttribute("spell", cast.spell)
 		btn:SetAttribute("unit", cast.unit)
@@ -668,9 +670,21 @@ local function BuildButton()
 	btn.iconFrame:Hide()
 	local fs = btn:GetFontString()
 	fs:ClearAllPoints()
-	fs:SetPoint("LEFT", 36, 0)
+	fs:SetPoint("LEFT", 44, 0) -- leaves a gap after the 32px-wide icon
 	fs:SetPoint("RIGHT", -6, 0)
 	fs:SetJustifyH("LEFT")
+
+	-- white flash while buffs are missing (3.3.5 has no animation API)
+	btn.flash = CreateFrame("Frame", nil, btn)
+	btn.flash:SetAllPoints()
+	local ftex = btn.flash:CreateTexture(nil, "OVERLAY")
+	ftex:SetAllPoints()
+	ftex:SetTexture("Interface\\Buttons\\WHITE8X8")
+	ftex:SetBlendMode("ADD")
+	btn.flash:SetScript("OnUpdate", function(self)
+		self:SetAlpha((0.5 + 0.5 * math.sin(GetTime() * math.pi)) * 0.45)
+	end)
+	btn.flash:Hide()
 	Skin("castbutton", btn)
 	btn:SetMovable(true)
 	btn:RegisterForDrag("LeftButton")
