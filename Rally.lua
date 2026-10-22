@@ -590,7 +590,7 @@ end
 local function BuildList()
 	listFrame = CreateFrame("Frame", "RallyList", UIParent)
 	Size(listFrame, BTN_W, 40)
-	listFrame:SetPoint("BOTTOM", btn, "TOP", 0, 0)
+	listFrame:SetPoint("BOTTOM", btn, "TOP", 0, 4)
 	listFrame:SetBackdrop({
 		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
 		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
