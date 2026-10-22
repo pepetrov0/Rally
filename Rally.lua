@@ -1,7 +1,9 @@
 --[[ Rally - raid buff assignments for all classes (WotLK 3.3.5)
-     Assign each buffer a buff per target class. Assignments sync over addon
-     messages. One button casts the next buff that is missing (greater buffs,
-     falling back to lesser buffs when out of reagents).
+     Paladins are assigned blessings per target class in the /rally window;
+     every other buffer class is hidden there and casts its standard buff by
+     presumption. Assignments sync over addon messages. One button casts the
+     next buff that is missing (greater buffs, falling back to lesser buffs
+     when out of reagents).
      /rally        toggle the assignment window
      /rally auto   auto-assign everyone
      /rally reset  clear all assignments
@@ -65,8 +67,8 @@ local ASSIGN = {
 	HORN   = { label = "Horn",   buffs = { "HORN" } },
 }
 
--- options each class can cycle through. Paladins are assigned per target
--- class; every other class is assigned for the whole row at once.
+-- spell options per buffer class. Only paladins are listed and assigned
+-- in the /rally window; for everyone else the standard buff is presumed.
 local CASTERS = {
 	PALADIN     = { "KINGS", "MIGHT", "WISDOM", "SANC" },
 	PRIEST      = { "PRIEST" }, -- priests cast all three buffs
@@ -177,9 +179,12 @@ end
 local function SyncAll()
 	if not Channel() then return end
 	if IsOfficer() then
-		for _, r in ipairs(Roster()) do Send(r.name) end
+		for _, r in ipairs(Roster()) do
+			if r.class == "PALADIN" then Send(r.name) end
+		end
 	else
-		Send(ME)
+		local _, myClass = UnitClass("player")
+		if myClass == "PALADIN" then Send(ME) end
 	end
 end
 
@@ -240,21 +245,16 @@ local function ShowCellTooltip(cell, row, class)
 	GameTooltip:Show()
 end
 
-local function Cycle(caster, casterClass, targetClass, dir)
+local function Cycle(caster, targetClass, dir)
 	if not CanEdit(caster) then return end
-	local list = CASTERS[casterClass]
+	local list = CASTERS.PALADIN -- the window only lists paladins
 	local row = RallyDB.assign[caster]
 	if not row then row = {}; RallyDB.assign[caster] = row end
 	local idx = 0
 	for i, k in ipairs(list) do if row[targetClass] == k then idx = i end end
 	idx = idx + dir
 	if idx > #list then idx = 0 elseif idx < 0 then idx = #list end
-	local value = idx > 0 and list[idx] or nil
-	if casterClass == "PALADIN" then
-		row[targetClass] = value
-	else -- everyone else: the whole row at once
-		for _, class in ipairs(CLASSES) do row[class] = value end
-	end
+	row[targetClass] = idx > 0 and list[idx] or nil
 	Send(caster)
 	Rally_Refresh()
 end
@@ -288,7 +288,7 @@ local function GetRow(i)
 		Skin("cell", b)
 		b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 		b:SetScript("OnClick", function(self, button)
-			Cycle(row.caster, row.casterClass, class, button == "RightButton" and -1 or 1)
+			Cycle(row.caster, class, button == "RightButton" and -1 or 1)
 		end)
 		row.cells[c] = b
 	end
@@ -298,10 +298,15 @@ end
 
 function Rally_Refresh()
 	if not frame or not frame:IsShown() then return end
-	local roster = Roster()
+	-- the window lists paladins only; every other class casts its standard
+	-- buff without needing an assignment
+	local roster = {}
+	for _, r in ipairs(Roster()) do
+		if r.class == "PALADIN" then roster[#roster + 1] = r end
+	end
 	for i, r in ipairs(roster) do
 		local row = GetRow(i)
-		row.caster, row.casterClass = r.name, r.class
+		row.caster = r.name
 		local color = RAID_CLASS_COLORS[r.class]
 		row.name:SetText(r.name)
 		row.name:SetTextColor(color.r, color.g, color.b)
@@ -323,22 +328,15 @@ local function AutoAssign()
 		print("|cff00ccffRally:|r only the leader or an assistant can auto-assign.")
 		return
 	end
-	local paladins, warriors = 0, 0
+	local paladins = 0
 	for _, r in ipairs(Roster()) do
-		local row = {}
 		if r.class == "PALADIN" then
 			paladins = paladins + 1
+			local row = {}
 			for _, class in ipairs(CLASSES) do row[class] = PALADIN_PRIORITY[class][paladins] end
-		else
-			local key = CASTERS[r.class][1]
-			if r.class == "WARRIOR" then -- alternate the two shouts
-				warriors = warriors + 1
-				key = (warriors % 2 == 1) and "BSHOUT" or "CSHOUT"
-			end
-			for _, class in ipairs(CLASSES) do row[class] = key end
+			RallyDB.assign[r.name] = row
+			Send(r.name)
 		end
-		RallyDB.assign[r.name] = row
-		Send(r.name)
 	end
 	Rally_Refresh()
 end
@@ -387,7 +385,7 @@ local function BuildWindow()
 
 	frame.empty = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	frame.empty:SetPoint("TOP", 0, -ROWS_TOP - 10)
-	frame.empty:SetText("No buffer classes in your group.")
+	frame.empty:SetText("No paladins in your group.")
 
 	local auto = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 	Size(auto, 120, 26)
@@ -398,7 +396,7 @@ local function BuildWindow()
 	local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	hint:SetPoint("BOTTOMRIGHT", -PAD, 26)
 	hint:SetJustifyH("RIGHT")
-	hint:SetText("Click: next   Right-click: previous\n(non-paladins: whole row)")
+	hint:SetText("Click: next   Right-click: previous")
 
 	Skin("window", frame, close, auto)
 end
@@ -437,12 +435,36 @@ local function PickSpell(buff)
 	if Known(buff.lesser) then return buff.lesser, true end
 end
 
+-- non-paladins never get an assignment; their standard buff is presumed
+-- (warriors alternate the two shouts by their position in the roster)
+local function PresumedRow(class, indexInClass)
+	local key = CASTERS[class][1]
+	if class == "WARRIOR" then key = (indexInClass % 2 == 1) and "BSHOUT" or "CSHOUT" end
+	local row = {}
+	for _, c in ipairs(CLASSES) do row[c] = key end
+	return row
+end
+
+-- the row I cast from: saved assignment for paladins, presumed otherwise
+local function MyRow()
+	local _, myClass = UnitClass("player")
+	if not CASTERS[myClass] then return nil end
+	if myClass == "PALADIN" then return RallyDB.assign[ME] end
+	local index = 0
+	for _, r in ipairs(Roster()) do
+		if r.class == myClass then
+			index = index + 1
+			if r.name == ME then return PresumedRow(myClass, index) end
+		end
+	end
+end
+
 -- Walks everyone in the group for the buffs assigned to me.
 -- Returns list = players missing something (each with the buff keys missing),
 -- and cast = the first buff I can actually cast right now (in range).
 local function Scan()
 	local list, cast = {}, nil
-	local row = RallyDB.assign[ME]
+	local row = MyRow()
 	if not row or UnitIsDeadOrGhost("player") then return list end
 	local units, byName = Units(), {}
 	for _, class in ipairs(CLASSES) do
@@ -487,14 +509,14 @@ local function GetListLine(i)
 	Size(line, BTN_W - 16, LINE_H)
 	line:SetPoint("TOPLEFT", listFrame, "TOPLEFT", 8, -8 - (i - 1) * LINE_H)
 	line.name = line:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	line.name:SetPoint("LEFT", 0, 0)
-	line.name:SetWidth(100)
+	line.name:SetPoint("LEFT", 62, 0) -- icons come first
+	line.name:SetWidth(BTN_W - 16 - 62)
 	line.name:SetJustifyH("LEFT")
 	line.icons = {}
 	for j = 1, 3 do -- priests can miss all three
 		local tex = line:CreateTexture(nil, "ARTWORK")
 		Size(tex, 18, 18)
-		tex:SetPoint("LEFT", 106 + (j - 1) * 20, 0)
+		tex:SetPoint("LEFT", (j - 1) * 20, 0)
 		tex:SetTexCoord(unpack(ICON_CROP))
 		line.icons[j] = tex
 	end
