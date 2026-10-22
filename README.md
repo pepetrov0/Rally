@@ -5,15 +5,16 @@
 ![WoW WotLK 3.3.5a](https://img.shields.io/badge/WoW-Wrath%20of%20the%20Lich%20King%203.3.5a-9b1c1c?style=flat-square)
 ![Version](https://img.shields.io/badge/version-1.0-blue?style=flat-square)
 
-[Features](#features) • [Installation](#installation) • [Usage](#usage) • [How buffing works](#how-buffing-works)
+[Features](#features) • [Installation](#installation) • [Usage](#usage) • [How buffing works](#how-buffing-works) • [PallyPower integration](#pallypower-integration)
 
-A lightweight buff-assignment and one-button buffing addon for World of Warcraft: Wrath of the Lich King (3.3.5a). Plan the paladin blessings and warrior shouts in a compact grid, sync them across the raid, then single left-click to buff — Rally walks the raid, finds whoever is missing an assigned buff, and casts it. When everyone is buffed, the button hides itself.
+A lightweight buff-assignment and one-button buffing addon for World of Warcraft: Wrath of the Lich King (3.3.5a). Plan the paladin blessings and warrior shouts in a compact grid, sync them across the raid, then single left-click to buff — Rally walks the raid, finds whoever is missing an assigned buff, and casts it. The button stays on screen and shows how many buffs are still missing.
 
 ## Features
 
-- 🎯 **One-button buffing** — casts the next missing buff, listing out-of-range raiders above the button until they come in range
+- 🎯 **One-button buffing** — an always-visible button that shows the missing-buff count and casts the next buff; out-of-range raiders are listed above it until they come in range
 - 🛡️ **Only paladins and warriors need planning** — a grid of blessings per target class (and raid-wide shout rows for warriors); every other buffer class casts its standard buff automatically
 - 🔄 **Live raid sync** — assignments broadcast over addon messages; only the raid leader or an assistant can edit them
+- 🤝 **PallyPower bridge** — shares the paladin grid with PallyPower users, in both directions
 - 🧪 **Reagent-aware** — casts greater blessings when reagents are available, falls back to the single-target version when they're not
 - ⏱️ **Fresh-buff awareness** — buffs with less than 60 seconds remaining count as missing, so you rebuff ahead of the fall-off
 - 🎨 **ElvUI compatible** — optional skin restyles the window, cells, and buttons (no hard dependency)
@@ -40,13 +41,13 @@ A lightweight buff-assignment and one-button buffing addon for World of Warcraft
 
 ### The cast button
 
-A single secure button appears when someone is missing a buff:
+An always-visible secure button that states the buff state right on it:
 
 - **Left-click** — cast the next missing buff (greater version first, lesser fallback without reagents)
 - **Right-click** — toggle the assignment window
 - **Shift-drag** — move the button (position is remembered)
 
-The missing-buffs list above the button shows who still needs what, and it disappears once everyone is buffed. During combat the button can't change spells, but it updates again as soon as combat ends.
+It reads "All buffs are up" when everything is covered; otherwise it shows the missing count plus the next spell it would cast (or "out of range"). The list above the button shows who still needs what until then. During combat the button can't change what it would cast; it picks up again as soon as combat ends.
 
 ### The assignment window
 
@@ -71,3 +72,22 @@ Paladins get blessing assignments and warriors get raid-wide shout assignments t
 | Death Knight | Horn of Winter |
 
 Assignments are stored in `RallyDB` (account-wide) and shared raid-wide over addon communication. Officers broadcast their edits; everyone receives them.
+
+## PallyPower integration
+
+The bundled `PallyPowerSync.lua` bridges Rally and [PallyPower](https://www.wowace.com/projects/pally-power) users in the same raid, so both sides see the same paladin grid:
+
+- Assignments made **in PallyPower** appear in your `/rally` window and drive your buff button.
+- Assignments made **in Rally** (cell clicks, `/rally auto`, `/rally reset`) are re-broadcast as PallyPower messages.
+- Rally announces itself as a paladin (with your Rally assignments as its blessings) and answers PallyPower's "announce yourselves" request.
+- Warrior shouts have no PallyPower equivalent, so that part of a Rally grid stays local.
+
+| Command | Action |
+|---|---|
+| `/rallypp debug` | Print every PallyPower message received |
+| `/rallypp mode wotlk\|classic` | Switch the blessing-id map (default: `wotlk`) |
+| `/rallypp req` | Ask PallyPower users to announce themselves |
+| `/rallypp self` | Show and send your self-announcement |
+
+> [!NOTE]
+> The sync is a separate file loaded after Rally.lua. It only reads and writes Rally's saved assignments — Rally itself is untouched, and removing the file turns PallyPower off entirely.
