@@ -615,20 +615,23 @@ local function UpdateButton()
 	if #list == 0 then -- everybody is buffed
 		btn:SetAttribute("spell", nil)
 		btn:SetAttribute("unit", nil)
-		btn:Hide()
+		btn:SetText("All buffs are up")
+		btn.iconFrame:Hide()
 		return
 	end
+	local missing = 0
+	for _, e in ipairs(list) do missing = missing + #e.buffs end
 	btn:Show()
 	if cast then
 		btn:SetAttribute("spell", cast.spell)
 		btn:SetAttribute("unit", cast.unit)
-		btn:SetText(cast.buff.label .. (cast.lesser and " (L)" or "") .. " > " .. cast.name)
+		btn:SetText(missing .. " missing - " .. cast.buff.label .. (cast.lesser and " (L)" or "") .. " > " .. cast.name)
 		btn.icon:SetTexture(BuffIcon(cast.key))
 		btn.iconFrame:Show()
 	else -- people are missing buffs, but none are in range
 		btn:SetAttribute("spell", nil)
 		btn:SetAttribute("unit", nil)
-		btn:SetText("Out of range")
+		btn:SetText(missing .. " missing - out of range")
 		btn.iconFrame:Hide()
 	end
 end
@@ -688,7 +691,7 @@ local function BuildButton()
 	btn:SetScript("OnEnter", function(self)
 		GameTooltip:SetOwner(self, "ANCHOR_TOP")
 		GameTooltip:SetText("Rally")
-		GameTooltip:AddLine("Left-click: cast next buff", 1, 1, 1)
+		GameTooltip:AddLine("Left-click: cast next missing buff", 1, 1, 1)
 		GameTooltip:AddLine("Right-click: assignments", 1, 1, 1)
 		GameTooltip:AddLine("Shift-drag: move", 1, 1, 1)
 		GameTooltip:Show()
@@ -698,7 +701,6 @@ local function BuildButton()
 		btn:ClearAllPoints()
 		btn:SetPoint(RallyDB.pos[1], UIParent, RallyDB.pos[2], RallyDB.pos[3], RallyDB.pos[4])
 	end
-	btn:Hide()
 	BuildList()
 end
 
