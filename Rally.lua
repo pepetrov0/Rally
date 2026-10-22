@@ -505,7 +505,7 @@ local function Scan()
 end
 
 -- missing-buffs list shown above the cast button
-local BTN_W, MAX_LIST, LINE_H = 200, 10, 22
+local BTN_W, MAX_LIST, LINE_H = 200, 10, 17
 local listFrame, listLines = nil, {}
 
 local function GetListLine(i)
@@ -514,14 +514,14 @@ local function GetListLine(i)
 	Size(line, BTN_W - 16, LINE_H)
 	line:SetPoint("TOPLEFT", listFrame, "TOPLEFT", 8, -8 - (i - 1) * LINE_H)
 	line.name = line:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	line.name:SetPoint("LEFT", 62, 0) -- icons come first
-	line.name:SetWidth(BTN_W - 16 - 62)
+	line.name:SetPoint("LEFT", 18, 0) -- icons come first; exact offset set in UpdateList
+	line.name:SetWidth(BTN_W - 16 - 54)
 	line.name:SetJustifyH("LEFT")
 	line.icons = {}
 	for j = 1, 3 do -- priests can miss all three
 		local tex = line:CreateTexture(nil, "ARTWORK")
-		Size(tex, 18, 18)
-		tex:SetPoint("LEFT", (j - 1) * 20, 0)
+		Size(tex, 16, 16)
+		tex:SetPoint("LEFT", (j - 1) * 18, 0)
 		tex:SetTexCoord(unpack(ICON_CROP))
 		line.icons[j] = tex
 	end
@@ -535,6 +535,7 @@ local function UpdateList(list)
 		local line, entry = GetListLine(i), list[i]
 		local color = RAID_CLASS_COLORS[entry.class]
 		line.name:SetText(entry.name)
+		line.name:SetPoint("LEFT", #entry.buffs * 18 + 3, 0) -- tiny gap after the icons
 		line.name:SetTextColor(color.r, color.g, color.b)
 		for j, tex in ipairs(line.icons) do
 			local key = entry.buffs[j]
@@ -589,7 +590,7 @@ end
 local function BuildList()
 	listFrame = CreateFrame("Frame", "RallyList", UIParent)
 	Size(listFrame, BTN_W, 40)
-	listFrame:SetPoint("BOTTOM", btn, "TOP", 0, 4)
+	listFrame:SetPoint("BOTTOM", btn, "TOP", 0, 0)
 	listFrame:SetBackdrop({
 		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
 		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
@@ -604,7 +605,7 @@ end
 
 local function BuildButton()
 	btn = CreateFrame("Button", "RallyCastButton", UIParent, "SecureActionButtonTemplate, UIPanelButtonTemplate")
-	Size(btn, BTN_W, 30)
+	Size(btn, BTN_W, 36)
 	btn:SetPoint("CENTER", 0, -200)
 	btn:SetAttribute("type", "spell")
 	btn:SetAttribute("type2", "") -- right-click shows the assignments; only left-click may cast
@@ -612,7 +613,7 @@ local function BuildButton()
 
 	-- icon of the buff that will be cast (own frame so skins can't strip it)
 	btn.iconFrame = CreateFrame("Frame", nil, btn)
-	Size(btn.iconFrame, 22, 22)
+	Size(btn.iconFrame, 26, 26)
 	btn.iconFrame:SetPoint("LEFT", 6, 0)
 	btn.icon = btn.iconFrame:CreateTexture(nil, "ARTWORK")
 	btn.icon:SetAllPoints()
@@ -620,7 +621,7 @@ local function BuildButton()
 	btn.iconFrame:Hide()
 	local fs = btn:GetFontString()
 	fs:ClearAllPoints()
-	fs:SetPoint("LEFT", 34, 0)
+	fs:SetPoint("LEFT", 36, 0)
 	fs:SetPoint("RIGHT", -6, 0)
 	fs:SetJustifyH("LEFT")
 	Skin("castbutton", btn)
