@@ -99,6 +99,15 @@ local REBUFF_BELOW = 60 -- seconds left before a buff counts as "missing"
 ---------------------------------------------------------------------------
 -- Helpers
 ---------------------------------------------------------------------------
+local function Size(obj, w, h)
+	obj:SetWidth(w)
+	obj:SetHeight(h)
+end
+
+local function SetShown(obj, shown)
+	if shown then obj:Show() else obj:Hide() end
+end
+
 local function Units()
 	local t, n = {}, GetNumRaidMembers()
 	if n > 0 then
@@ -177,7 +186,10 @@ end
 ---------------------------------------------------------------------------
 -- Assignment window
 ---------------------------------------------------------------------------
-local NAME_W, CELL, ROW_H = 110, 30, 30 -- square cells
+-- window layout: square cells with generous spacing
+local NAME_W, CELL, GAP, PAD = 130, 34, 6, 26
+local PITCH, ROW_H = CELL + GAP, CELL + 6
+local ROWS_TOP = 84 -- distance from the window top to the first row
 local frame, rows = nil, {}
 
 -- let an optional skin (ElvUI) restyle a widget; never breaks the addon
@@ -195,7 +207,7 @@ end
 local function SetCellIcons(cell, key)
 	local buffs = key and ASSIGN[key].buffs
 	local n = buffs and #buffs or 0
-	local half = (CELL - 2 - 4) / 2
+	local half = (CELL - 4) / 2
 	for i, tex in ipairs(cell.icons) do
 		if i <= n then
 			tex:SetTexture(BuffIcon(buffs[i]))
@@ -204,7 +216,7 @@ local function SetCellIcons(cell, key)
 				tex:SetPoint("TOPLEFT", 2, -2)
 				tex:SetPoint("BOTTOMRIGHT", -2, 2)
 			else
-				tex:SetSize(half, half)
+				Size(tex, half, half)
 				tex:SetPoint("TOPLEFT", 2 + ((i - 1) % 2) * half, -2 - math.floor((i - 1) / 2) * half)
 			end
 			tex:Show()
@@ -250,17 +262,17 @@ end
 local function GetRow(i)
 	if rows[i] then return rows[i] end
 	local row = CreateFrame("Frame", nil, frame)
-	row:SetSize(NAME_W + CELL * #CLASSES, ROW_H)
-	row:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -62 - (i - 1) * ROW_H)
-	row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	Size(row, NAME_W + PITCH * #CLASSES, ROW_H)
+	row:SetPoint("TOPLEFT", frame, "TOPLEFT", PAD, -ROWS_TOP - (i - 1) * ROW_H)
+	row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	row.name:SetPoint("LEFT", 0, 0)
-	row.name:SetWidth(NAME_W - 5)
+	row.name:SetWidth(NAME_W - 8)
 	row.name:SetJustifyH("LEFT")
 	row.cells = {}
 	for c, class in ipairs(CLASSES) do
 		local b = CreateFrame("Button", nil, row)
-		b:SetSize(CELL - 2, CELL - 2)
-		b:SetPoint("LEFT", NAME_W + (c - 1) * CELL, 0)
+		Size(b, CELL, CELL)
+		b:SetPoint("LEFT", NAME_W + (c - 1) * PITCH, 0)
 		b:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
 		b:SetBackdropColor(0, 0, 0, 0.5)
 		b:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
@@ -302,8 +314,8 @@ function Rally_Refresh()
 		row:Show()
 	end
 	for i = #roster + 1, #rows do rows[i]:Hide() end
-	frame:SetHeight(104 + math.max(#roster, 1) * ROW_H)
-	frame.empty:SetShown(#roster == 0)
+	frame:SetHeight(ROWS_TOP + 70 + math.max(#roster, 1) * ROW_H)
+	SetShown(frame.empty, #roster == 0)
 end
 
 local function AutoAssign()
@@ -333,7 +345,7 @@ end
 
 local function BuildWindow()
 	frame = CreateFrame("Frame", "RallyFrame", UIParent)
-	frame:SetSize(NAME_W + CELL * #CLASSES + 36, 150)
+	Size(frame, PAD * 2 + NAME_W + PITCH * #CLASSES - GAP, 150)
 	frame:SetPoint("CENTER")
 	frame:SetBackdrop({
 		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -351,16 +363,16 @@ local function BuildWindow()
 	tinsert(UISpecialFrames, "RallyFrame")
 
 	local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	title:SetPoint("TOP", 0, -16)
+	title:SetPoint("TOP", 0, -20)
 	title:SetText("Rally")
 
 	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
-	close:SetPoint("TOPRIGHT", -5, -5)
+	close:SetPoint("TOPRIGHT", -6, -6)
 
 	for c, class in ipairs(CLASSES) do
 		local h = CreateFrame("Frame", nil, frame)
-		h:SetSize(24, 24)
-		h:SetPoint("TOPLEFT", 18 + NAME_W + (c - 1) * CELL + 3, -36)
+		Size(h, 28, 28)
+		h:SetPoint("TOPLEFT", PAD + NAME_W + (c - 1) * PITCH + (CELL - 28) / 2, -ROWS_TOP + 40)
 		local t = h:CreateTexture(nil, "ARTWORK")
 		t:SetAllPoints()
 		t:SetTexture("Interface\\WorldStateFrame\\Icons-Classes")
@@ -374,17 +386,17 @@ local function BuildWindow()
 	end
 
 	frame.empty = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	frame.empty:SetPoint("TOP", 0, -70)
+	frame.empty:SetPoint("TOP", 0, -ROWS_TOP - 10)
 	frame.empty:SetText("No buffer classes in your group.")
 
 	local auto = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	auto:SetSize(100, 22)
-	auto:SetPoint("BOTTOMLEFT", 20, 16)
+	Size(auto, 120, 26)
+	auto:SetPoint("BOTTOMLEFT", PAD, 24)
 	auto:SetText("Auto-assign")
 	auto:SetScript("OnClick", AutoAssign)
 
 	local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	hint:SetPoint("BOTTOMRIGHT", -22, 20)
+	hint:SetPoint("BOTTOMRIGHT", -PAD, 26)
 	hint:SetJustifyH("RIGHT")
 	hint:SetText("Click: next   Right-click: previous\n(non-paladins: whole row)")
 
@@ -425,10 +437,14 @@ local function PickSpell(buff)
 	if Known(buff.lesser) then return buff.lesser, true end
 end
 
-local function FindNeed()
+-- Walks everyone in the group for the buffs assigned to me.
+-- Returns list = players missing something (each with the buff keys missing),
+-- and cast = the first buff I can actually cast right now (in range).
+local function Scan()
+	local list, cast = {}, nil
 	local row = RallyDB.assign[ME]
-	if not row or UnitIsDeadOrGhost("player") then return end
-	local units = Units()
+	if not row or UnitIsDeadOrGhost("player") then return list end
+	local units, byName = Units(), {}
 	for _, class in ipairs(CLASSES) do
 		local opt = row[class] and ASSIGN[row[class]]
 		if opt then
@@ -439,44 +455,136 @@ local function FindNeed()
 					for _, u in ipairs(units) do
 						local _, uclass = UnitClass(u)
 						if uclass == class and UnitIsConnected(u) and UnitIsVisible(u) and not UnitIsDeadOrGhost(u)
-							and not HasBuff(u, buff)
-							and (buff.self or IsSpellInRange(spell, u) ~= 0) then
-							return buff, spell, isLesser, buff.self and "player" or u, UnitName(u), bkey
+							and not HasBuff(u, buff) then
+							local name = UnitName(u)
+							local entry = byName[name]
+							if not entry then
+								entry = { name = name, class = class, buffs = {} }
+								byName[name] = entry
+								list[#list + 1] = entry
+							end
+							entry.buffs[#entry.buffs + 1] = bkey
+							if not cast and (buff.self or IsSpellInRange(spell, u) ~= 0) then
+								cast = { buff = buff, key = bkey, spell = spell, lesser = isLesser,
+									unit = buff.self and "player" or u, name = name }
+							end
 						end
 					end
 				end
 			end
 		end
 	end
+	return list, cast
+end
+
+-- missing-buffs list shown above the cast button
+local BTN_W, MAX_LIST, LINE_H = 200, 10, 22
+local listFrame, listLines = nil, {}
+
+local function GetListLine(i)
+	if listLines[i] then return listLines[i] end
+	local line = CreateFrame("Frame", nil, listFrame)
+	Size(line, BTN_W - 16, LINE_H)
+	line:SetPoint("TOPLEFT", listFrame, "TOPLEFT", 8, -8 - (i - 1) * LINE_H)
+	line.name = line:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	line.name:SetPoint("LEFT", 0, 0)
+	line.name:SetWidth(100)
+	line.name:SetJustifyH("LEFT")
+	line.icons = {}
+	for j = 1, 3 do -- priests can miss all three
+		local tex = line:CreateTexture(nil, "ARTWORK")
+		Size(tex, 18, 18)
+		tex:SetPoint("LEFT", 106 + (j - 1) * 20, 0)
+		tex:SetTexCoord(unpack(ICON_CROP))
+		line.icons[j] = tex
+	end
+	listLines[i] = line
+	return line
+end
+
+local function UpdateList(list)
+	local n = math.min(#list, MAX_LIST)
+	for i = 1, n do
+		local line, entry = GetListLine(i), list[i]
+		local color = RAID_CLASS_COLORS[entry.class]
+		line.name:SetText(entry.name)
+		line.name:SetTextColor(color.r, color.g, color.b)
+		for j, tex in ipairs(line.icons) do
+			local key = entry.buffs[j]
+			if key then tex:SetTexture(BuffIcon(key)); tex:Show() else tex:Hide() end
+		end
+		line:Show()
+	end
+	for i = n + 1, #listLines do listLines[i]:Hide() end
+
+	local height = 16 + n * LINE_H
+	local extra = #list - n
+	if extra > 0 then
+		listFrame.more:ClearAllPoints()
+		listFrame.more:SetPoint("TOPLEFT", 8, -8 - n * LINE_H)
+		listFrame.more:SetText("+" .. extra .. " more")
+		listFrame.more:Show()
+		height = height + 14
+	else
+		listFrame.more:Hide()
+	end
+	listFrame:SetHeight(height)
+	SetShown(listFrame, n > 0)
 end
 
 local function UpdateButton()
-	if InCombatLockdown() then return end
-	local buff, spell, isLesser, unit, name, bkey = FindNeed()
-	if buff then
-		btn:SetAttribute("spell", spell)
-		btn:SetAttribute("unit", unit)
-		btn:SetText(buff.label .. (isLesser and " (L)" or "") .. " > " .. name)
-		btn.icon:SetTexture(BuffIcon(bkey))
-		btn.iconFrame:Show()
-	else
+	if not btn then return end
+	local list, cast = Scan()
+	UpdateList(list)
+	if InCombatLockdown() then return end -- the secure button can't change in combat
+
+	if #list == 0 then -- everybody is buffed
 		btn:SetAttribute("spell", nil)
 		btn:SetAttribute("unit", nil)
-		btn:SetText("Rally: all buffed")
+		btn:Hide()
+		return
+	end
+	btn:Show()
+	if cast then
+		btn:SetAttribute("spell", cast.spell)
+		btn:SetAttribute("unit", cast.unit)
+		btn:SetText(cast.buff.label .. (cast.lesser and " (L)" or "") .. " > " .. cast.name)
+		btn.icon:SetTexture(BuffIcon(cast.key))
+		btn.iconFrame:Show()
+	else -- people are missing buffs, but none are in range
+		btn:SetAttribute("spell", nil)
+		btn:SetAttribute("unit", nil)
+		btn:SetText("Out of range")
 		btn.iconFrame:Hide()
 	end
 end
 
+local function BuildList()
+	listFrame = CreateFrame("Frame", "RallyList", UIParent)
+	Size(listFrame, BTN_W, 40)
+	listFrame:SetPoint("BOTTOM", btn, "TOP", 0, 4)
+	listFrame:SetBackdrop({
+		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		tile = true, tileSize = 16, edgeSize = 12,
+		insets = { left = 3, right = 3, top = 3, bottom = 3 },
+	})
+	listFrame:SetBackdropColor(0, 0, 0, 0.8)
+	listFrame.more = listFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	listFrame:Hide()
+	Skin("list", listFrame)
+end
+
 local function BuildButton()
 	btn = CreateFrame("Button", "RallyCastButton", UIParent, "SecureActionButtonTemplate, UIPanelButtonTemplate")
-	btn:SetSize(200, 30)
+	Size(btn, BTN_W, 30)
 	btn:SetPoint("CENTER", 0, -200)
 	btn:SetAttribute("type", "spell")
 	btn:RegisterForClicks("AnyUp")
 
 	-- icon of the buff that will be cast (own frame so skins can't strip it)
 	btn.iconFrame = CreateFrame("Frame", nil, btn)
-	btn.iconFrame:SetSize(22, 22)
+	Size(btn.iconFrame, 22, 22)
 	btn.iconFrame:SetPoint("LEFT", 6, 0)
 	btn.icon = btn.iconFrame:CreateTexture(nil, "ARTWORK")
 	btn.icon:SetAllPoints()
@@ -516,6 +624,8 @@ local function BuildButton()
 		btn:ClearAllPoints()
 		btn:SetPoint(RallyDB.pos[1], UIParent, RallyDB.pos[2], RallyDB.pos[3], RallyDB.pos[4])
 	end
+	btn:Hide()
+	BuildList()
 end
 
 ---------------------------------------------------------------------------
