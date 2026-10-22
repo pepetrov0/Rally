@@ -235,7 +235,7 @@ end
 -- Assignment window
 ---------------------------------------------------------------------------
 -- window layout: square cells with generous spacing
-local NAME_W, CELL, GAP, PAD = 130, 34, 6, 26
+local NAME_W, CELL, GAP, PAD = 130, 40, 6, 26
 local PITCH, ROW_H = CELL + GAP, CELL + 6
 local ROWS_TOP = 84 -- distance from the window top to the first row
 local frame, rows = nil, {}
@@ -425,10 +425,11 @@ local function BuildWindow()
 	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
 	close:SetPoint("TOPRIGHT", -6, -6)
 
+	local HEAD = CELL - 6 -- class icon size, a bit smaller than a cell
 	for c, class in ipairs(CLASSES) do
 		local h = CreateFrame("Frame", nil, frame)
-		Size(h, 28, 28)
-		h:SetPoint("TOPLEFT", PAD + NAME_W + (c - 1) * PITCH + (CELL - 28) / 2, -ROWS_TOP + 40)
+		Size(h, HEAD, HEAD)
+		h:SetPoint("TOPLEFT", PAD + NAME_W + (c - 1) * PITCH + (CELL - HEAD) / 2, -ROWS_TOP + 40)
 		local t = h:CreateTexture(nil, "ARTWORK")
 		t:SetAllPoints()
 		t:SetTexture("Interface\\WorldStateFrame\\Icons-Classes")
