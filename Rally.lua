@@ -1,39 +1,55 @@
 --[[ Rally - raid buff assignments for all classes (WotLK 3.3.5)
      Assign each buffer a buff per target class. Assignments sync over addon
-     messages. One button casts the next buff that is missing.
+     messages. One button casts the next buff that is missing (greater buffs,
+     falling back to lesser buffs when out of reagents).
      /rally        toggle the assignment window
+     /rally auto   auto-assign everyone
      /rally reset  clear all assignments
 ]]
 
 local PREFIX = "RALLY"
 local ME = UnitName("player")
 
-BINDING_HEADER_RALLY = "Rally"
-_G["BINDING_NAME_CLICK RallyCastButton:LeftButton"] = "Cast next assigned buff"
-
 ---------------------------------------------------------------------------
 -- Data
 ---------------------------------------------------------------------------
--- self = true: spell is cast on yourself (shouts, horn); others need a target
+-- spell  = greater/group version (needs reagents)
+-- lesser = single-target fallback, used when reagents are missing
+-- self   = true: cast on yourself (shouts, horn); others need a target
 local BUFFS = {
-	KINGS   = { label = "Kings",   spell = "Greater Blessing of Kings",   auras = { "Blessing of Kings", "Greater Blessing of Kings" } },
-	MIGHT   = { label = "Might",   spell = "Greater Blessing of Might",   auras = { "Blessing of Might", "Greater Blessing of Might" } },
-	WISDOM  = { label = "Wisdom",  spell = "Greater Blessing of Wisdom",  auras = { "Blessing of Wisdom", "Greater Blessing of Wisdom" } },
-	SANC    = { label = "Sanct",   spell = "Greater Blessing of Sanctuary", auras = { "Blessing of Sanctuary", "Greater Blessing of Sanctuary" } },
-	FORT    = { label = "Fort",    spell = "Prayer of Fortitude",         auras = { "Power Word: Fortitude", "Prayer of Fortitude" } },
-	SPIRIT  = { label = "Spirit",  spell = "Prayer of Spirit",            auras = { "Divine Spirit", "Prayer of Spirit" } },
-	SHADOW  = { label = "ShadP",   spell = "Prayer of Shadow Protection", auras = { "Shadow Protection", "Prayer of Shadow Protection" } },
-	MARK    = { label = "Wild",    spell = "Gift of the Wild",            auras = { "Mark of the Wild", "Gift of the Wild" } },
-	AI      = { label = "Int",     spell = "Arcane Brilliance",           auras = { "Arcane Intellect", "Arcane Brilliance" } },
-	BSHOUT  = { label = "BShout",  spell = "Battle Shout",                auras = { "Battle Shout" }, self = true },
-	CSHOUT  = { label = "CShout",  spell = "Commanding Shout",            auras = { "Commanding Shout" }, self = true },
-	HORN    = { label = "Horn",    spell = "Horn of Winter",              auras = { "Horn of Winter" }, self = true },
+	KINGS   = { label = "Kings",  spell = "Greater Blessing of Kings",     lesser = "Blessing of Kings",     auras = { "Blessing of Kings", "Greater Blessing of Kings" } },
+	MIGHT   = { label = "Might",  spell = "Greater Blessing of Might",     lesser = "Blessing of Might",     auras = { "Blessing of Might", "Greater Blessing of Might" } },
+	WISDOM  = { label = "Wisdom", spell = "Greater Blessing of Wisdom",    lesser = "Blessing of Wisdom",    auras = { "Blessing of Wisdom", "Greater Blessing of Wisdom" } },
+	SANC    = { label = "Sanct",  spell = "Greater Blessing of Sanctuary", lesser = "Blessing of Sanctuary", auras = { "Blessing of Sanctuary", "Greater Blessing of Sanctuary" } },
+	FORT    = { label = "Fort",   spell = "Prayer of Fortitude",           lesser = "Power Word: Fortitude", auras = { "Power Word: Fortitude", "Prayer of Fortitude" } },
+	SPIRIT  = { label = "Spirit", spell = "Prayer of Spirit",              lesser = "Divine Spirit",         auras = { "Divine Spirit", "Prayer of Spirit" } },
+	SHADOW  = { label = "ShadP",  spell = "Prayer of Shadow Protection",   lesser = "Shadow Protection",     auras = { "Shadow Protection", "Prayer of Shadow Protection" } },
+	MARK    = { label = "Wild",   spell = "Gift of the Wild",              lesser = "Mark of the Wild",      auras = { "Mark of the Wild", "Gift of the Wild" } },
+	AI      = { label = "Int",    spell = "Arcane Brilliance",             lesser = "Arcane Intellect",      auras = { "Arcane Intellect", "Arcane Brilliance" } },
+	BSHOUT  = { label = "BShout", spell = "Battle Shout",                  auras = { "Battle Shout" }, self = true },
+	CSHOUT  = { label = "CShout", spell = "Commanding Shout",              auras = { "Commanding Shout" }, self = true },
+	HORN    = { label = "Horn",   spell = "Horn of Winter",                auras = { "Horn of Winter" }, self = true },
 }
 
--- which buffs each class can be assigned (add more here to extend)
+-- what a cell can be set to; each option casts one or more buffs
+local ASSIGN = {
+	KINGS  = { label = "Kings",  buffs = { "KINGS" } },
+	MIGHT  = { label = "Might",  buffs = { "MIGHT" } },
+	WISDOM = { label = "Wisdom", buffs = { "WISDOM" } },
+	SANC   = { label = "Sanct",  buffs = { "SANC" } },
+	PRIEST = { label = "All",    buffs = { "FORT", "SPIRIT", "SHADOW" } },
+	MARK   = { label = "Wild",   buffs = { "MARK" } },
+	AI     = { label = "Int",    buffs = { "AI" } },
+	BSHOUT = { label = "BShout", buffs = { "BSHOUT" } },
+	CSHOUT = { label = "CShout", buffs = { "CSHOUT" } },
+	HORN   = { label = "Horn",   buffs = { "HORN" } },
+}
+
+-- options each class can cycle through. Paladins are assigned per target
+-- class; every other class is assigned for the whole row at once.
 local CASTERS = {
 	PALADIN     = { "KINGS", "MIGHT", "WISDOM", "SANC" },
-	PRIEST      = { "FORT", "SPIRIT", "SHADOW" },
+	PRIEST      = { "PRIEST" }, -- priests cast all three buffs
 	DRUID       = { "MARK" },
 	MAGE        = { "AI" },
 	WARRIOR     = { "BSHOUT", "CSHOUT" },
@@ -42,6 +58,21 @@ local CASTERS = {
 
 -- target class columns (order matters for the sync message)
 local CLASSES = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
+
+-- auto-assign: blessings per target class in order of priority.
+-- Paladin #1 (by name) gets entry 1, paladin #2 gets entry 2, ...
+local PALADIN_PRIORITY = {
+	WARRIOR     = { "KINGS", "MIGHT", "SANC" },
+	DEATHKNIGHT = { "KINGS", "MIGHT", "SANC" },
+	ROGUE       = { "KINGS", "MIGHT" },
+	HUNTER      = { "KINGS", "MIGHT", "WISDOM" },
+	PALADIN     = { "KINGS", "WISDOM", "MIGHT", "SANC" },
+	SHAMAN      = { "KINGS", "WISDOM", "MIGHT" },
+	DRUID       = { "KINGS", "WISDOM", "MIGHT" },
+	PRIEST      = { "KINGS", "WISDOM" },
+	MAGE        = { "KINGS", "WISDOM" },
+	WARLOCK     = { "KINGS", "WISDOM" },
+}
 
 local REBUFF_BELOW = 60 -- seconds left before a buff counts as "missing"
 
@@ -138,7 +169,12 @@ local function Cycle(caster, casterClass, targetClass, dir)
 	for i, k in ipairs(list) do if row[targetClass] == k then idx = i end end
 	idx = idx + dir
 	if idx > #list then idx = 0 elseif idx < 0 then idx = #list end
-	row[targetClass] = idx > 0 and list[idx] or nil
+	local value = idx > 0 and list[idx] or nil
+	if casterClass == "PALADIN" then
+		row[targetClass] = value
+	else -- everyone else: the whole row at once
+		for _, class in ipairs(CLASSES) do row[class] = value end
+	end
 	Send(caster)
 	Rally_Refresh()
 end
@@ -182,15 +218,40 @@ function Rally_Refresh()
 		local assigned, editable = RallyDB.assign[r.name] or {}, CanEdit(r.name)
 		for c, class in ipairs(CLASSES) do
 			local cell, key = row.cells[c], assigned[class]
-			cell.text:SetText(key and BUFFS[key].label or "")
+			cell.text:SetText(key and ASSIGN[key].label or "")
 			if key then cell:SetBackdropColor(0.1, 0.4, 0.1, 0.9) else cell:SetBackdropColor(0, 0, 0, 0.5) end
 			cell:SetBackdropBorderColor(0.4, 0.4, 0.4, editable and 1 or 0.3)
 		end
 		row:Show()
 	end
 	for i = #roster + 1, #rows do rows[i]:Hide() end
-	frame:SetHeight(100 + math.max(#roster, 1) * ROW_H)
+	frame:SetHeight(104 + math.max(#roster, 1) * ROW_H)
 	frame.empty:SetShown(#roster == 0)
+end
+
+local function AutoAssign()
+	if not IsOfficer() then
+		print("|cff00ccffRally:|r only the leader or an assistant can auto-assign.")
+		return
+	end
+	local paladins, warriors = 0, 0
+	for _, r in ipairs(Roster()) do
+		local row = {}
+		if r.class == "PALADIN" then
+			paladins = paladins + 1
+			for _, class in ipairs(CLASSES) do row[class] = PALADIN_PRIORITY[class][paladins] end
+		else
+			local key = CASTERS[r.class][1]
+			if r.class == "WARRIOR" then -- alternate the two shouts
+				warriors = warriors + 1
+				key = (warriors % 2 == 1) and "BSHOUT" or "CSHOUT"
+			end
+			for _, class in ipairs(CLASSES) do row[class] = key end
+		end
+		RallyDB.assign[r.name] = row
+		Send(r.name)
+	end
+	Rally_Refresh()
 end
 
 local function BuildWindow()
@@ -239,9 +300,16 @@ local function BuildWindow()
 	frame.empty:SetPoint("TOP", 0, -70)
 	frame.empty:SetText("No buffer classes in your group.")
 
+	local auto = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+	auto:SetSize(100, 22)
+	auto:SetPoint("BOTTOMLEFT", 20, 16)
+	auto:SetText("Auto-assign")
+	auto:SetScript("OnClick", AutoAssign)
+
 	local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	hint:SetPoint("BOTTOM", 0, 18)
-	hint:SetText("Left-click: next buff   Right-click: previous buff")
+	hint:SetPoint("BOTTOMRIGHT", -22, 20)
+	hint:SetJustifyH("RIGHT")
+	hint:SetText("Click: next   Right-click: previous\n(non-paladins: whole row)")
 end
 
 ---------------------------------------------------------------------------
@@ -263,19 +331,40 @@ local function HasBuff(unit, buff)
 	return false
 end
 
+local function Known(spell) return GetSpellInfo(spell) ~= nil end
+
+-- greater version if we know it and have the reagents, else the lesser one
+local function PickSpell(buff)
+	if not buff.lesser then
+		if Known(buff.spell) then return buff.spell end
+		return nil
+	end
+	if Known(buff.spell) then
+		local usable, noMana = IsUsableSpell(buff.spell) -- false without reagents
+		if usable or noMana then return buff.spell end
+	end
+	if Known(buff.lesser) then return buff.lesser, true end
+end
+
 local function FindNeed()
 	local row = RallyDB.assign[ME]
 	if not row or UnitIsDeadOrGhost("player") then return end
 	local units = Units()
 	for _, class in ipairs(CLASSES) do
-		local buff = row[class] and BUFFS[row[class]]
-		if buff and GetSpellInfo(buff.spell) then
-			for _, u in ipairs(units) do
-				local _, uclass = UnitClass(u)
-				if uclass == class and UnitIsConnected(u) and UnitIsVisible(u) and not UnitIsDeadOrGhost(u)
-					and not HasBuff(u, buff)
-					and (buff.self or IsSpellInRange(buff.spell, u) ~= 0) then
-					return buff, buff.self and "player" or u, UnitName(u)
+		local opt = row[class] and ASSIGN[row[class]]
+		if opt then
+			for _, bkey in ipairs(opt.buffs) do
+				local buff = BUFFS[bkey]
+				local spell, isLesser = PickSpell(buff)
+				if spell then
+					for _, u in ipairs(units) do
+						local _, uclass = UnitClass(u)
+						if uclass == class and UnitIsConnected(u) and UnitIsVisible(u) and not UnitIsDeadOrGhost(u)
+							and not HasBuff(u, buff)
+							and (buff.self or IsSpellInRange(spell, u) ~= 0) then
+							return buff, spell, isLesser, buff.self and "player" or u, UnitName(u)
+						end
+					end
 				end
 			end
 		end
@@ -284,11 +373,11 @@ end
 
 local function UpdateButton()
 	if InCombatLockdown() then return end
-	local buff, unit, name = FindNeed()
+	local buff, spell, isLesser, unit, name = FindNeed()
 	if buff then
-		btn:SetAttribute("spell", buff.spell)
+		btn:SetAttribute("spell", spell)
 		btn:SetAttribute("unit", unit)
-		btn:SetText(buff.label .. " > " .. name)
+		btn:SetText(buff.label .. (isLesser and " (L)" or "") .. " > " .. name)
 	else
 		btn:SetAttribute("spell", nil)
 		btn:SetAttribute("unit", nil)
@@ -298,7 +387,7 @@ end
 
 local function BuildButton()
 	btn = CreateFrame("Button", "RallyCastButton", UIParent, "SecureActionButtonTemplate, UIPanelButtonTemplate")
-	btn:SetSize(160, 28)
+	btn:SetSize(180, 28)
 	btn:SetPoint("CENTER", 0, -200)
 	btn:SetAttribute("type", "spell")
 	btn:RegisterForClicks("AnyUp")
@@ -371,7 +460,7 @@ driver:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
 		local row, i = {}, 0
 		for tok in string.gmatch(data, "[^,]+") do
 			i = i + 1
-			if CLASSES[i] and BUFFS[tok] then row[CLASSES[i]] = tok end
+			if CLASSES[i] and ASSIGN[tok] then row[CLASSES[i]] = tok end
 		end
 		RallyDB.assign[caster] = row
 		Rally_Refresh()
@@ -395,6 +484,8 @@ SlashCmdList["RALLY"] = function(msg)
 		SyncAll()
 		Rally_Refresh()
 		print("|cff00ccffRally:|r assignments cleared.")
+	elseif msg == "auto" then
+		AutoAssign()
 	elseif frame:IsShown() then
 		frame:Hide()
 	else
