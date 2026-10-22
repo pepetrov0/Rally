@@ -401,7 +401,7 @@ local function BuildWindow()
 	local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	hint:SetPoint("BOTTOMRIGHT", -PAD, 26)
 	hint:SetJustifyH("RIGHT")
-	hint:SetText("Click: next   Right-click: previous")
+	hint:SetText("Click: next   Shift-click: whole row   Right-click: previous")
 
 	Skin("window", frame, close, auto)
 end
@@ -607,6 +607,7 @@ local function BuildButton()
 	Size(btn, BTN_W, 30)
 	btn:SetPoint("CENTER", 0, -200)
 	btn:SetAttribute("type", "spell")
+	btn:SetAttribute("type2", "") -- right-click shows the assignments; only left-click may cast
 	btn:RegisterForClicks("AnyUp")
 
 	-- icon of the buff that will be cast (own frame so skins can't strip it)
