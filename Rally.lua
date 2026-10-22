@@ -7,11 +7,13 @@
      /rally        toggle the assignment window
      /rally auto   auto-assign everyone
      /rally reset  clear all assignments
+     /rally debug  fake raid of random classes to preview the window
 ]]
 
 Rally = Rally or {} -- Skin.lua adds Rally.Skin when ElvUI is present
 local PREFIX = "RALLY"
 local ME = UnitName("player")
+local assigns -- the assignment table in use: real RallyDB.assign, or fake in debug
 
 ---------------------------------------------------------------------------
 -- Data
@@ -147,9 +149,35 @@ local function SenderIsOfficer(name)
 	return false
 end
 
-local function CanEdit(caster) return caster == ME or IsOfficer() end
+---------------------------------------------------------------------------
+-- Debug: fake raid of random classes to preview the window (/rally debug)
+---------------------------------------------------------------------------
+local debugOn, fakeRoster, fakeDB = false
+local SYL_A = { "Al", "Bra", "Cyn", "Drak", "Elu", "Fen", "Grim", "Hal", "Kor", "Lyr", "Mor", "Sel", "Thra", "Vor" }
+local SYL_B = { "ad", "din", "gar", "ion", "ka", "mon", "rus", "sha", "tha", "var", "wyn", "zil" }
+
+local function CanEdit(caster) return debugOn or caster == ME or IsOfficer() end
+
+local function MakeFakeRoster()
+	local list, seen = {}, {}
+	for i = 1, 25 do
+		local name
+		repeat
+			name = SYL_A[math.random(#SYL_A)] .. SYL_B[math.random(#SYL_B)]
+		until not seen[name]
+		seen[name] = true
+		-- first three slots are paladins so the window always has rows to show
+		list[#list + 1] = { name = name, class = i <= 3 and "PALADIN" or CLASSES[math.random(#CLASSES)] }
+	end
+	table.sort(list, function(a, b)
+		if a.class ~= b.class then return a.class < b.class end
+		return a.name < b.name
+	end)
+	return list
+end
 
 local function Roster() -- list of buffers currently in the group
+	if debugOn then return fakeRoster end
 	local list = {}
 	for _, u in ipairs(Units()) do
 		local name = UnitName(u)
@@ -169,9 +197,10 @@ end
 local queue = {}
 
 local function Send(caster)
+	if debugOn then return end -- never broadcast the fake raid
 	local ch = Channel()
 	if not ch then return end
-	local row, parts = RallyDB.assign[caster] or {}, {}
+	local row, parts = assigns[caster] or {}, {}
 	for i, class in ipairs(CLASSES) do parts[i] = row[class] or "-" end
 	queue[#queue + 1] = { msg = "R|" .. caster .. "|" .. table.concat(parts, ","), ch = ch }
 end
@@ -232,7 +261,7 @@ local function SetCellIcons(cell, key)
 end
 
 local function ShowCellTooltip(cell, row, class)
-	local key = (RallyDB.assign[row.caster] or {})[class]
+	local key = (assigns[row.caster] or {})[class]
 	GameTooltip:SetOwner(cell, "ANCHOR_RIGHT")
 	GameTooltip:SetText(row.caster .. " > " .. LOCALIZED_CLASS_NAMES_MALE[class])
 	if key then
@@ -248,8 +277,8 @@ end
 local function Cycle(caster, targetClass, dir, wholeRow)
 	if not CanEdit(caster) then return end
 	local list = CASTERS.PALADIN -- the window only lists paladins
-	local row = RallyDB.assign[caster]
-	if not row then row = {}; RallyDB.assign[caster] = row end
+	local row = assigns[caster]
+	if not row then row = {}; assigns[caster] = row end
 	local idx = 0
 	for i, k in ipairs(list) do if row[targetClass] == k then idx = i end end
 	idx = idx + dir
@@ -315,7 +344,7 @@ function Rally_Refresh()
 		local color = RAID_CLASS_COLORS[r.class]
 		row.name:SetText(r.name)
 		row.name:SetTextColor(color.r, color.g, color.b)
-		local assigned, editable = RallyDB.assign[r.name] or {}, CanEdit(r.name)
+		local assigned, editable = assigns[r.name] or {}, CanEdit(r.name)
 		for c, class in ipairs(CLASSES) do
 			local cell, key = row.cells[c], assigned[class]
 			SetCellIcons(cell, key)
@@ -329,7 +358,7 @@ function Rally_Refresh()
 end
 
 local function AutoAssign()
-	if not IsOfficer() then
+	if not IsOfficer() and not debugOn then
 		print("|cff00ccffRally:|r only the leader or an assistant can auto-assign.")
 		return
 	end
@@ -339,7 +368,7 @@ local function AutoAssign()
 			paladins = paladins + 1
 			local row = {}
 			for _, class in ipairs(CLASSES) do row[class] = PALADIN_PRIORITY[class][paladins] end
-			RallyDB.assign[r.name] = row
+			assigns[r.name] = row
 			Send(r.name)
 		end
 	end
@@ -467,7 +496,26 @@ end
 -- Walks everyone in the group for the buffs assigned to me.
 -- Returns list = players missing something (each with the buff keys missing),
 -- and cast = the first buff I can actually cast right now (in range).
+local function FakeScan() -- fake "missing buffs" list for the debug raid
+	local keys = { "KINGS", "MIGHT", "WISDOM", "SANC", "FORT", "SPIRIT", "SHADOW", "MARK", "AI", "BSHOUT", "CSHOUT", "HORN" }
+	local list = {}
+	for i = 1, math.min(#fakeRoster, 8) do
+		local member, buffs, seen = fakeRoster[i], {}, {}
+		for _ = 1, math.random(3) do
+			local key = keys[math.random(#keys)]
+			if not seen[key] then
+				seen[key] = true
+				buffs[#buffs + 1] = key
+			end
+		end
+		if #buffs == 0 then buffs[1] = keys[math.random(#keys)] end
+		list[#list + 1] = { name = member.name, class = member.class, buffs = buffs }
+	end
+	return list
+end
+
 local function Scan()
+	if debugOn then return FakeScan() end
 	local list, cast = {}, nil
 	local row = MyRow()
 	if not row or UnitIsDeadOrGhost("player") then return list end
@@ -684,12 +732,14 @@ driver:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
 	if event == "PLAYER_LOGIN" then
 		RallyDB = RallyDB or {}
 		RallyDB.assign = RallyDB.assign or {}
+		assigns = RallyDB.assign
 		BuildWindow()
 		BuildButton()
 		UpdateButton()
 	elseif event == "CHAT_MSG_ADDON" then
 		local prefix, msg, _, sender = a1, a2, a3, a4
 		if prefix ~= PREFIX or sender == ME then return end
+		if debugOn then return end -- the fake view must not ingest real syncs
 		local cmd, caster, data = strsplit("|", msg)
 		if cmd ~= "R" or not caster or not data then return end
 		if sender ~= caster and not SenderIsOfficer(sender) then return end
@@ -698,7 +748,7 @@ driver:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
 			i = i + 1
 			if CLASSES[i] and ASSIGN[tok] then row[CLASSES[i]] = tok end
 		end
-		RallyDB.assign[caster] = row
+		assigns[caster] = row
 		Rally_Refresh()
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		UpdateButton()
@@ -713,13 +763,38 @@ end)
 ---------------------------------------------------------------------------
 -- Slash command
 ---------------------------------------------------------------------------
+-- debug keeps everything fake in a local table: no syncs, real data
+-- (RallyDB / saved variables) is never written to
+local function ToggleDebug()
+	debugOn = not debugOn
+	if debugOn then
+		fakeRoster = MakeFakeRoster()
+		fakeDB = {}
+		print("|cff00ccffRally:|r debug raid active - real assignments are untouched.")
+	else
+		fakeRoster, fakeDB = nil, nil
+		print("|cff00ccffRally:|r debug raid off.")
+	end
+	assigns = debugOn and fakeDB or RallyDB.assign
+	Rally_Refresh()
+	if frame then
+		frame:Show()
+	end
+	if debugOn then
+		AutoAssign() -- pre-populate the grid so the layout is visible at once
+		if btn then UpdateButton() end -- fake missing-buff list above the button
+	end
+end
+
 SLASH_RALLY1 = "/rally"
 SlashCmdList["RALLY"] = function(msg)
 	if msg == "reset" then
-		wipe(RallyDB.assign)
+		wipe(assigns)
 		SyncAll()
 		Rally_Refresh()
 		print("|cff00ccffRally:|r assignments cleared.")
+	elseif msg == "debug" then
+		ToggleDebug()
 	elseif msg == "auto" then
 		AutoAssign()
 	elseif frame:IsShown() then
