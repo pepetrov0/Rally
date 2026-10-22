@@ -1,0 +1,8 @@
+## Interface: 30300
+## Title: Rally
+## Notes: Raid buff assignments for all classes (PallyPower-style, simplified)
+## Author: You
+## Version: 0.1
+## SavedVariables: RallyDB
+
+Rally.lua
