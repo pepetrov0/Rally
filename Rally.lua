@@ -1,9 +1,9 @@
 --[[ Rally - raid buff assignments for all classes (WotLK 3.3.5)
-     Paladins (blessings) and warriors (shouts) are assigned in the /rally
-     window; every other buffer class is hidden there and casts its standard
-     buff by presumption. Assignments sync over addon messages. One button
-     casts the next buff that is missing (greater buffs, falling back to
-     lesser buffs when out of reagents).
+     Paladins (blessings), warriors (shouts) and druids (Wild/Thorns) are
+     assigned in the /rally window; every other buffer class casts its
+     standard buff by presumption. Assignments sync over addon messages. One
+     button casts the next buff that is missing (greater buffs, falling back
+     to lesser buffs when out of reagents).
      /rally        toggle the assignment window
      /rally auto   auto-assign everyone
      /rally reset  clear all assignments
@@ -30,6 +30,7 @@ local BUFFS = {
 	SPIRIT  = { label = "Spirit", spell = "Prayer of Spirit",              lesser = "Divine Spirit",         auras = { "Divine Spirit", "Prayer of Spirit" } },
 	SHADOW  = { label = "ShadP",  spell = "Prayer of Shadow Protection",   lesser = "Shadow Protection",     auras = { "Shadow Protection", "Prayer of Shadow Protection" } },
 	MARK    = { label = "Wild",   spell = "Gift of the Wild",              lesser = "Mark of the Wild",      auras = { "Mark of the Wild", "Gift of the Wild" } },
+	THORNS  = { label = "Thorns", spell = "Thorns",                        auras = { "Thorns" } },
 	AI      = { label = "Int",    spell = "Arcane Brilliance",             lesser = "Arcane Intellect",      auras = { "Arcane Intellect", "Arcane Brilliance" } },
 	BSHOUT  = { label = "BShout", spell = "Battle Shout",                  auras = { "Battle Shout" }, self = true },
 	CSHOUT  = { label = "CShout", spell = "Commanding Shout",              auras = { "Commanding Shout" }, self = true },
@@ -40,7 +41,7 @@ local BUFFS = {
 local SPELL_IDS = {
 	KINGS = 25898, MIGHT = 25782, WISDOM = 25894, SANC = 25899,
 	FORT = 21562, SPIRIT = 27681, SHADOW = 27683,
-	MARK = 21849, AI = 23028,
+	MARK = 21849, THORNS = 467, AI = 23028,
 	BSHOUT = 6673, CSHOUT = 469, HORN = 57330,
 }
 
@@ -63,26 +64,27 @@ local ASSIGN = {
 	SANC   = { label = "Sanct",  buffs = { "SANC" } },
 	PRIEST = { label = "All",    buffs = { "FORT", "SPIRIT", "SHADOW" } },
 	MARK   = { label = "Wild",   buffs = { "MARK" } },
+	THORNS = { label = "Thorns", buffs = { "THORNS" } },
 	AI     = { label = "Int",    buffs = { "AI" } },
 	BSHOUT = { label = "BShout", buffs = { "BSHOUT" } },
 	CSHOUT = { label = "CShout", buffs = { "CSHOUT" } },
 	HORN   = { label = "Horn",   buffs = { "HORN" } },
 }
 
--- spell options per buffer class. Paladins and warriors are listed and
--- assigned in the /rally window; for everyone else the standard buff is
+-- spell options per buffer class. Paladins, warriors and druids are listed
+-- and assigned in the /rally window; for everyone else the standard buff is
 -- presumed.
 local CASTERS = {
 	PALADIN     = { "KINGS", "MIGHT", "WISDOM", "SANC" },
 	PRIEST      = { "PRIEST" }, -- priests cast all three buffs
-	DRUID       = { "MARK" },
+	DRUID       = { "MARK", "THORNS" },
 	MAGE        = { "AI" },
 	WARRIOR     = { "BSHOUT", "CSHOUT" },
 	DEATHKNIGHT = { "HORN" },
 }
 
 -- classes that get a row (and a saved assignment) in the /rally window
-local GRID = { PALADIN = true, WARRIOR = true }
+local GRID = { PALADIN = true, WARRIOR = true, DRUID = true }
 
 -- target class columns (order matters for the sync message)
 local CLASSES = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
@@ -351,8 +353,8 @@ end
 
 function Rally_Refresh()
 	if not frame or not frame:IsShown() then return end
-	-- the window lists paladins and warriors; every other class casts its
-	-- standard buff without needing an assignment
+	-- the window lists paladins, warriors and druids; every other class
+	-- casts its standard buff without needing an assignment
 	local roster = {}
 	for _, r in ipairs(Roster()) do
 		if GRID[r.class] then roster[#roster + 1] = r end
@@ -382,7 +384,7 @@ local function AutoAssign()
 		print("|cff00ccffRally:|r only the leader or an assistant can auto-assign.")
 		return
 	end
-	local paladins, warriors = 0, 0
+	local paladins, warriors, druids = 0, 0, 0
 	for _, r in ipairs(Roster()) do
 		if r.class == "PALADIN" then
 			paladins = paladins + 1
@@ -393,6 +395,10 @@ local function AutoAssign()
 		elseif r.class == "WARRIOR" then
 			warriors = warriors + 1
 			assigns[r.name] = PresumedRow("WARRIOR", warriors)
+			Send(r.name)
+		elseif r.class == "DRUID" then
+			druids = druids + 1
+			assigns[r.name] = PresumedRow("DRUID", druids) -- all Wild until clicked
 			Send(r.name)
 		end
 	end
@@ -444,7 +450,7 @@ local function BuildWindow()
 
 	frame.empty = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	frame.empty:SetPoint("TOP", 0, -ROWS_TOP - 10)
-	frame.empty:SetText("No paladins or warriors in your group.")
+	frame.empty:SetText("No paladins, warriors or druids in your group.")
 
 	local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	hint:SetPoint("BOTTOM", 0, 26)
