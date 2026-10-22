@@ -3,6 +3,8 @@
 ## Notes: Raid buff assignments for all classes (PallyPower-style, simplified)
 ## Author: You
 ## Version: 0.1
+## OptionalDeps: ElvUI
 ## SavedVariables: RallyDB
 
 Rally.lua
+Skin.lua

@@ -7,6 +7,7 @@
      /rally reset  clear all assignments
 ]]
 
+Rally = Rally or {} -- Skin.lua adds Rally.Skin when ElvUI is present
 local PREFIX = "RALLY"
 local ME = UnitName("player")
 
@@ -30,6 +31,25 @@ local BUFFS = {
 	CSHOUT  = { label = "CShout", spell = "Commanding Shout",              auras = { "Commanding Shout" }, self = true },
 	HORN    = { label = "Horn",   spell = "Horn of Winter",                auras = { "Horn of Winter" }, self = true },
 }
+
+-- spell ids, only used to look up icons (works even if the spell isn't known)
+local SPELL_IDS = {
+	KINGS = 25898, MIGHT = 25782, WISDOM = 25894, SANC = 25899,
+	FORT = 21562, SPIRIT = 27681, SHADOW = 27683,
+	MARK = 21849, AI = 23028,
+	BSHOUT = 6673, CSHOUT = 469, HORN = 57330,
+}
+
+local FALLBACK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
+local ICON_CROP = { 0.07, 0.93, 0.07, 0.93 }
+
+local function BuffIcon(key)
+	local buff = BUFFS[key]
+	if not buff.icon then
+		buff.icon = select(3, GetSpellInfo(buff.spell)) or select(3, GetSpellInfo(SPELL_IDS[key]))
+	end
+	return buff.icon or FALLBACK_ICON
+end
 
 -- what a cell can be set to; each option casts one or more buffs
 local ASSIGN = {
@@ -157,8 +177,56 @@ end
 ---------------------------------------------------------------------------
 -- Assignment window
 ---------------------------------------------------------------------------
-local NAME_W, CELL_W, ROW_H = 110, 34, 22
+local NAME_W, CELL, ROW_H = 110, 30, 30 -- square cells
 local frame, rows = nil, {}
+
+-- let an optional skin (ElvUI) restyle a widget; never breaks the addon
+local skinFailed
+local function Skin(kind, ...)
+	if not Rally.Skin or skinFailed then return end
+	local ok, err = pcall(Rally.Skin, kind, ...)
+	if not ok then
+		skinFailed = true
+		print("|cff00ccffRally:|r skin error: " .. tostring(err))
+	end
+end
+
+-- show the option's buff icons in a cell: one big icon, or a 2x2 mini grid
+local function SetCellIcons(cell, key)
+	local buffs = key and ASSIGN[key].buffs
+	local n = buffs and #buffs or 0
+	local half = (CELL - 2 - 4) / 2
+	for i, tex in ipairs(cell.icons) do
+		if i <= n then
+			tex:SetTexture(BuffIcon(buffs[i]))
+			tex:ClearAllPoints()
+			if n == 1 then
+				tex:SetPoint("TOPLEFT", 2, -2)
+				tex:SetPoint("BOTTOMRIGHT", -2, 2)
+			else
+				tex:SetSize(half, half)
+				tex:SetPoint("TOPLEFT", 2 + ((i - 1) % 2) * half, -2 - math.floor((i - 1) / 2) * half)
+			end
+			tex:Show()
+		else
+			tex:Hide()
+		end
+	end
+end
+
+local function ShowCellTooltip(cell, row, class)
+	local key = (RallyDB.assign[row.caster] or {})[class]
+	GameTooltip:SetOwner(cell, "ANCHOR_RIGHT")
+	GameTooltip:SetText(row.caster .. " > " .. LOCALIZED_CLASS_NAMES_MALE[class])
+	if key then
+		for _, bkey in ipairs(ASSIGN[key].buffs) do
+			GameTooltip:AddLine(BUFFS[bkey].spell, 1, 1, 1)
+		end
+	else
+		GameTooltip:AddLine("Not assigned", 0.6, 0.6, 0.6)
+	end
+	GameTooltip:Show()
+end
 
 local function Cycle(caster, casterClass, targetClass, dir)
 	if not CanEdit(caster) then return end
@@ -182,7 +250,7 @@ end
 local function GetRow(i)
 	if rows[i] then return rows[i] end
 	local row = CreateFrame("Frame", nil, frame)
-	row:SetSize(NAME_W + CELL_W * #CLASSES, ROW_H)
+	row:SetSize(NAME_W + CELL * #CLASSES, ROW_H)
 	row:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -62 - (i - 1) * ROW_H)
 	row.name = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	row.name:SetPoint("LEFT", 0, 0)
@@ -191,11 +259,21 @@ local function GetRow(i)
 	row.cells = {}
 	for c, class in ipairs(CLASSES) do
 		local b = CreateFrame("Button", nil, row)
-		b:SetSize(CELL_W - 2, ROW_H - 2)
-		b:SetPoint("LEFT", NAME_W + (c - 1) * CELL_W, 0)
+		b:SetSize(CELL - 2, CELL - 2)
+		b:SetPoint("LEFT", NAME_W + (c - 1) * CELL, 0)
 		b:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
-		b.text = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		b.text:SetPoint("CENTER")
+		b:SetBackdropColor(0, 0, 0, 0.5)
+		b:SetBackdropBorderColor(0.4, 0.4, 0.4, 1)
+		b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square")
+		b.icons = {}
+		for i = 1, 4 do
+			local tex = b:CreateTexture(nil, "ARTWORK")
+			tex:SetTexCoord(unpack(ICON_CROP))
+			b.icons[i] = tex
+		end
+		b:SetScript("OnEnter", function(self) ShowCellTooltip(self, row, class) end)
+		b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		Skin("cell", b)
 		b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 		b:SetScript("OnClick", function(self, button)
 			Cycle(row.caster, row.casterClass, class, button == "RightButton" and -1 or 1)
@@ -218,9 +296,8 @@ function Rally_Refresh()
 		local assigned, editable = RallyDB.assign[r.name] or {}, CanEdit(r.name)
 		for c, class in ipairs(CLASSES) do
 			local cell, key = row.cells[c], assigned[class]
-			cell.text:SetText(key and ASSIGN[key].label or "")
-			if key then cell:SetBackdropColor(0.1, 0.4, 0.1, 0.9) else cell:SetBackdropColor(0, 0, 0, 0.5) end
-			cell:SetBackdropBorderColor(0.4, 0.4, 0.4, editable and 1 or 0.3)
+			SetCellIcons(cell, key)
+			cell:SetAlpha(editable and 1 or 0.5)
 		end
 		row:Show()
 	end
@@ -256,7 +333,7 @@ end
 
 local function BuildWindow()
 	frame = CreateFrame("Frame", "RallyFrame", UIParent)
-	frame:SetSize(NAME_W + CELL_W * #CLASSES + 36, 150)
+	frame:SetSize(NAME_W + CELL * #CLASSES + 36, 150)
 	frame:SetPoint("CENTER")
 	frame:SetBackdrop({
 		bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
@@ -283,7 +360,7 @@ local function BuildWindow()
 	for c, class in ipairs(CLASSES) do
 		local h = CreateFrame("Frame", nil, frame)
 		h:SetSize(24, 24)
-		h:SetPoint("TOPLEFT", 18 + NAME_W + (c - 1) * CELL_W + 4, -36)
+		h:SetPoint("TOPLEFT", 18 + NAME_W + (c - 1) * CELL + 3, -36)
 		local t = h:CreateTexture(nil, "ARTWORK")
 		t:SetAllPoints()
 		t:SetTexture("Interface\\WorldStateFrame\\Icons-Classes")
@@ -310,6 +387,8 @@ local function BuildWindow()
 	hint:SetPoint("BOTTOMRIGHT", -22, 20)
 	hint:SetJustifyH("RIGHT")
 	hint:SetText("Click: next   Right-click: previous\n(non-paladins: whole row)")
+
+	Skin("window", frame, close, auto)
 end
 
 ---------------------------------------------------------------------------
@@ -362,7 +441,7 @@ local function FindNeed()
 						if uclass == class and UnitIsConnected(u) and UnitIsVisible(u) and not UnitIsDeadOrGhost(u)
 							and not HasBuff(u, buff)
 							and (buff.self or IsSpellInRange(spell, u) ~= 0) then
-							return buff, spell, isLesser, buff.self and "player" or u, UnitName(u)
+							return buff, spell, isLesser, buff.self and "player" or u, UnitName(u), bkey
 						end
 					end
 				end
@@ -373,24 +452,42 @@ end
 
 local function UpdateButton()
 	if InCombatLockdown() then return end
-	local buff, spell, isLesser, unit, name = FindNeed()
+	local buff, spell, isLesser, unit, name, bkey = FindNeed()
 	if buff then
 		btn:SetAttribute("spell", spell)
 		btn:SetAttribute("unit", unit)
 		btn:SetText(buff.label .. (isLesser and " (L)" or "") .. " > " .. name)
+		btn.icon:SetTexture(BuffIcon(bkey))
+		btn.iconFrame:Show()
 	else
 		btn:SetAttribute("spell", nil)
 		btn:SetAttribute("unit", nil)
 		btn:SetText("Rally: all buffed")
+		btn.iconFrame:Hide()
 	end
 end
 
 local function BuildButton()
 	btn = CreateFrame("Button", "RallyCastButton", UIParent, "SecureActionButtonTemplate, UIPanelButtonTemplate")
-	btn:SetSize(180, 28)
+	btn:SetSize(200, 30)
 	btn:SetPoint("CENTER", 0, -200)
 	btn:SetAttribute("type", "spell")
 	btn:RegisterForClicks("AnyUp")
+
+	-- icon of the buff that will be cast (own frame so skins can't strip it)
+	btn.iconFrame = CreateFrame("Frame", nil, btn)
+	btn.iconFrame:SetSize(22, 22)
+	btn.iconFrame:SetPoint("LEFT", 6, 0)
+	btn.icon = btn.iconFrame:CreateTexture(nil, "ARTWORK")
+	btn.icon:SetAllPoints()
+	btn.icon:SetTexCoord(unpack(ICON_CROP))
+	btn.iconFrame:Hide()
+	local fs = btn:GetFontString()
+	fs:ClearAllPoints()
+	fs:SetPoint("LEFT", 34, 0)
+	fs:SetPoint("RIGHT", -6, 0)
+	fs:SetJustifyH("LEFT")
+	Skin("castbutton", btn)
 	btn:SetMovable(true)
 	btn:RegisterForDrag("LeftButton")
 	btn:SetScript("OnDragStart", function(self)
