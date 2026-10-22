@@ -1,9 +1,9 @@
 --[[ Rally - raid buff assignments for all classes (WotLK 3.3.5)
-     Paladins (blessings), warriors (shouts) and druids (Wild/Thorns) are
-     assigned in the /rally window; every other buffer class casts its
-     standard buff by presumption. Assignments sync over addon messages. One
-     button casts the next buff that is missing (greater buffs, falling back
-     to lesser buffs when out of reagents).
+     Paladins (blessings) and warriors (shouts) are assigned in the /rally
+     window; every other buffer class casts its standard buff by presumption
+     (druids add Thorns on top of Gift of the Wild). Assignments sync over
+     addon messages. One button casts the next buff that is missing
+     (greater buffs, falling back to lesser buffs when out of reagents).
      /rally        toggle the assignment window
      /rally auto   auto-assign everyone
      /rally reset  clear all assignments
@@ -64,27 +64,27 @@ local ASSIGN = {
 	SANC   = { label = "Sanct",  buffs = { "SANC" } },
 	PRIEST = { label = "All",    buffs = { "FORT", "SPIRIT", "SHADOW" } },
 	MARK   = { label = "Wild",   buffs = { "MARK" } },
-	THORNS = { label = "Thorns", buffs = { "THORNS" } },
+	DRUID  = { label = "Wild+",  buffs = { "MARK", "THORNS" } }, -- presumed druid combo
 	AI     = { label = "Int",    buffs = { "AI" } },
 	BSHOUT = { label = "BShout", buffs = { "BSHOUT" } },
 	CSHOUT = { label = "CShout", buffs = { "CSHOUT" } },
 	HORN   = { label = "Horn",   buffs = { "HORN" } },
 }
 
--- spell options per buffer class. Paladins, warriors and druids are listed
--- and assigned in the /rally window; for everyone else the standard buff is
+-- spell options per buffer class. Paladins and warriors are listed and
+-- assigned in the /rally window; for everyone else the standard buffs are
 -- presumed.
 local CASTERS = {
 	PALADIN     = { "KINGS", "MIGHT", "WISDOM", "SANC" },
 	PRIEST      = { "PRIEST" }, -- priests cast all three buffs
-	DRUID       = { "MARK", "THORNS" },
+	DRUID       = { "DRUID" }, -- druids cast Wild and Thorns
 	MAGE        = { "AI" },
 	WARRIOR     = { "BSHOUT", "CSHOUT" },
 	DEATHKNIGHT = { "HORN" },
 }
 
 -- classes that get a row (and a saved assignment) in the /rally window
-local GRID = { PALADIN = true, WARRIOR = true, DRUID = true }
+local GRID = { PALADIN = true, WARRIOR = true }
 
 -- target class columns (order matters for the sync message)
 local CLASSES = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
@@ -106,8 +106,8 @@ local PALADIN_PRIORITY = {
 
 local REBUFF_BELOW = 60 -- seconds left before a buff counts as "missing"
 
--- presumed standard buff for buffer classes that need no assignment;
--- warriors without one alternate the two shouts by their roster position
+-- presumed standard buffs: priests cast all three prayers, druids cast
+-- Wild and Thorns; unassigned warriors alternate the two shouts by position
 local function PresumedRow(class, indexInClass)
 	local key = CASTERS[class][1]
 	if class == "WARRIOR" then key = (indexInClass % 2 == 1) and "BSHOUT" or "CSHOUT" end
@@ -353,8 +353,8 @@ end
 
 function Rally_Refresh()
 	if not frame or not frame:IsShown() then return end
-	-- the window lists paladins, warriors and druids; every other class
-	-- casts its standard buff without needing an assignment
+	-- the window lists paladins and warriors; every other class casts its
+	-- standard buffs without needing an assignment
 	local roster = {}
 	for _, r in ipairs(Roster()) do
 		if GRID[r.class] then roster[#roster + 1] = r end
@@ -384,7 +384,7 @@ local function AutoAssign()
 		print("|cff00ccffRally:|r only the leader or an assistant can auto-assign.")
 		return
 	end
-	local paladins, warriors, druids = 0, 0, 0
+	local paladins, warriors = 0, 0
 	for _, r in ipairs(Roster()) do
 		if r.class == "PALADIN" then
 			paladins = paladins + 1
@@ -395,10 +395,6 @@ local function AutoAssign()
 		elseif r.class == "WARRIOR" then
 			warriors = warriors + 1
 			assigns[r.name] = PresumedRow("WARRIOR", warriors)
-			Send(r.name)
-		elseif r.class == "DRUID" then
-			druids = druids + 1
-			assigns[r.name] = PresumedRow("DRUID", druids) -- all Wild until clicked
 			Send(r.name)
 		end
 	end
@@ -450,7 +446,7 @@ local function BuildWindow()
 
 	frame.empty = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	frame.empty:SetPoint("TOP", 0, -ROWS_TOP - 10)
-	frame.empty:SetText("No paladins, warriors or druids in your group.")
+	frame.empty:SetText("No paladins or warriors in your group.")
 
 	local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	hint:SetPoint("BOTTOM", 0, 26)
@@ -504,7 +500,11 @@ local function MyRow()
 	for _, r in ipairs(Roster()) do
 		if r.class == myClass then
 			index = index + 1
-			if r.name == ME then return RallyDB.assign[ME] or PresumedRow(myClass, index) end
+			if r.name == ME then
+				-- only grid classes read saved assignments; everyone else presumes
+				if GRID[myClass] and RallyDB.assign[ME] then return RallyDB.assign[ME] end
+				return PresumedRow(myClass, index)
+			end
 		end
 	end
 end

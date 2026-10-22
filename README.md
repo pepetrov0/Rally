@@ -12,7 +12,7 @@ A lightweight buff-assignment and one-button buffing addon for World of Warcraft
 ## Features
 
 - 🎯 **One-button buffing** — an always-visible button that shows the missing-buff count and casts the next buff; out-of-range raiders are listed above it until they come in range
-- 🛡️ **Only paladins, warriors and druids need planning** — blessings per target class for paladins, raid-wide shout rows for warriors, Wild or Thorns per class for druids; every other buffer class casts its standard buff automatically
+- 🛡️ **Only paladins and warriors need planning** — blessings per target class for paladins, raid-wide shout rows for warriors; druids cast Wild + Thorns on everyone; every other buffer class casts its standard buff automatically
 - 🔄 **Live raid sync** — assignments broadcast over addon messages; only the raid leader or an assistant can edit them
 - 🤝 **PallyPower bridge** — shares the paladin grid with PallyPower users, in both directions
 - 🧪 **Reagent-aware** — casts greater blessings when reagents are available, falls back to the single-target version when they're not
@@ -51,22 +51,22 @@ It reads "All good." when everything is covered; otherwise it shows a "N missing
 
 ### The assignment window
 
-One row per paladin, warrior or druid, one column per target class:
+One row per paladin or warrior, one column per target class:
 
-- **Click** a cell — cycle to the next blessing (paladins), shout (warriors) or Wild/Thorns pick (druids)
-- **Shift-click** — set the whole paladin row at once; druids cycle cell by cell, warrior rows are always set as a whole
+- **Click** a cell — cycle to the next blessing (paladins) or shout (warriors)
+- **Shift-click** — set the whole paladin row at once; warrior rows are always set as a whole
 - **Right-click** — cycle to the previous blessing
 - **Hover** — tooltip showing the exact spells the cell casts
 
 ## How buffing works
 
-Paladins get blessing assignments, warriors raid-wide shout assignments and druids per-class Wild/Thorns assignments through the window. Everyone else needs no planning — their standard buff is presumed:
+Paladins get blessing assignments and warriors raid-wide shout assignments through the window. Everyone else needs no planning — their standard buffs are presumed:
 
 | Class | Casts |
 |---|---|
 | Paladin | Assigned blessings (Kings / Might / Wisdom / Sanctuary) |
 | Priest | Prayer of Fortitude, Prayer of Spirit, Prayer of Shadow Protection |
-| Druid | Assigned Gift of the Wild or Thorns per class; Gift of the Wild everywhere until assigned |
+| Druid | Gift of the Wild and Thorns (both, on everyone) |
 | Mage | Arcane Brilliance |
 | Warrior | Assigned shout (Battle Shout / Commanding Shout); alternating shouts by raid position until assigned |
 | Death Knight | Horn of Winter |
@@ -80,7 +80,7 @@ The bundled `PallyPowerSync.lua` bridges Rally and [PallyPower](https://www.wowa
 - Assignments made **in PallyPower** appear in your `/rally` window and drive your buff button.
 - Assignments made **in Rally** (cell clicks, `/rally auto`, `/rally reset`) are re-broadcast as PallyPower messages.
 - Rally announces itself as a paladin (with your Rally assignments as its blessings) and answers PallyPower's "announce yourselves" request.
-- Warrior shouts and druid Wild/Thorns have no PallyPower equivalent, so those parts of a Rally grid stay local.
+- Warrior shouts have no PallyPower equivalent, so that part of a Rally grid stays local.
 
 | Command | Action |
 |---|---|
