@@ -7,12 +7,12 @@
 
 [Features](#features) • [Installation](#installation) • [Usage](#usage) • [How buffing works](#how-buffing-works)
 
-A lightweight buff-assignment and one-button buffing addon for World of Warcraft: Wrath of the Lich King (3.3.5a). Plan the paladin blessings in a compact grid, sync them across the raid, then single left-click to buff — Rally walks the raid, finds whoever is missing an assigned buff, and casts it. When everyone is buffed, the button hides itself.
+A lightweight buff-assignment and one-button buffing addon for World of Warcraft: Wrath of the Lich King (3.3.5a). Plan the paladin blessings and warrior shouts in a compact grid, sync them across the raid, then single left-click to buff — Rally walks the raid, finds whoever is missing an assigned buff, and casts it. When everyone is buffed, the button hides itself.
 
 ## Features
 
 - 🎯 **One-button buffing** — casts the next missing buff, listing out-of-range raiders above the button until they come in range
-- 🛡️ **Paladins only need planning** — a grid of blessings per target class; every other buffer class casts its standard buff automatically, no assignment needed
+- 🛡️ **Only paladins and warriors need planning** — a grid of blessings per target class (and raid-wide shout rows for warriors); every other buffer class casts its standard buff automatically
 - 🔄 **Live raid sync** — assignments broadcast over addon messages; only the raid leader or an assistant can edit them
 - 🧪 **Reagent-aware** — casts greater blessings when reagents are available, falls back to the single-target version when they're not
 - ⏱️ **Fresh-buff awareness** — buffs with less than 60 seconds remaining count as missing, so you rebuff ahead of the fall-off
@@ -31,7 +31,7 @@ A lightweight buff-assignment and one-button buffing addon for World of Warcraft
 | Command | Action |
 |---|---|
 | `/rally` | Toggle the assignment window |
-| `/rally auto` | Auto-assign a sensible blessing to every paladin (leader/assistant only) |
+| `/rally auto` | Auto-assign blessings to every paladin and shouts to warriors (leader/assistant only) |
 | `/rally reset` | Clear all assignments |
 | `/rally debug` | Preview the window and cast button with a fake raid |
 
@@ -50,16 +50,16 @@ The missing-buffs list above the button shows who still needs what, and it disap
 
 ### The assignment window
 
-One row per paladin, one column per target class:
+One row per paladin or warrior, one column per target class:
 
-- **Click** a cell — cycle to the next blessing
-- **Shift-click** — set the whole row at once
+- **Click** a cell — cycle to the next blessing (paladins) or shout (warriors)
+- **Shift-click** — set the whole paladin row at once; warrior rows are always set as a whole
 - **Right-click** — cycle to the previous blessing
 - **Hover** — tooltip showing the exact spells the cell casts
 
 ## How buffing works
 
-Paladins are assigned through the window. Everyone else needs no planning — their standard buff is presumed:
+Paladins get blessing assignments and warriors get raid-wide shout assignments through the window. Everyone else needs no planning — their standard buff is presumed:
 
 | Class | Casts |
 |---|---|
@@ -67,7 +67,7 @@ Paladins are assigned through the window. Everyone else needs no planning — th
 | Priest | Prayer of Fortitude, Prayer of Spirit, Prayer of Shadow Protection |
 | Druid | Gift of the Wild |
 | Mage | Arcane Brilliance |
-| Warrior | Battle Shout or Commanding Shout (alternating by position in the raid) |
+| Warrior | Assigned shout (Battle Shout / Commanding Shout); alternating shouts by raid position until assigned |
 | Death Knight | Horn of Winter |
 
 Assignments are stored in `RallyDB` (account-wide) and shared raid-wide over addon communication. Officers broadcast their edits; everyone receives them.

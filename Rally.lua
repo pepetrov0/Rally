@@ -1,9 +1,9 @@
 --[[ Rally - raid buff assignments for all classes (WotLK 3.3.5)
-     Paladins are assigned blessings per target class in the /rally window;
-     every other buffer class is hidden there and casts its standard buff by
-     presumption. Assignments sync over addon messages. One button casts the
-     next buff that is missing (greater buffs, falling back to lesser buffs
-     when out of reagents).
+     Paladins (blessings) and warriors (shouts) are assigned in the /rally
+     window; every other buffer class is hidden there and casts its standard
+     buff by presumption. Assignments sync over addon messages. One button
+     casts the next buff that is missing (greater buffs, falling back to
+     lesser buffs when out of reagents).
      /rally        toggle the assignment window
      /rally auto   auto-assign everyone
      /rally reset  clear all assignments
@@ -69,8 +69,9 @@ local ASSIGN = {
 	HORN   = { label = "Horn",   buffs = { "HORN" } },
 }
 
--- spell options per buffer class. Only paladins are listed and assigned
--- in the /rally window; for everyone else the standard buff is presumed.
+-- spell options per buffer class. Paladins and warriors are listed and
+-- assigned in the /rally window; for everyone else the standard buff is
+-- presumed.
 local CASTERS = {
 	PALADIN     = { "KINGS", "MIGHT", "WISDOM", "SANC" },
 	PRIEST      = { "PRIEST" }, -- priests cast all three buffs
@@ -79,6 +80,9 @@ local CASTERS = {
 	WARRIOR     = { "BSHOUT", "CSHOUT" },
 	DEATHKNIGHT = { "HORN" },
 }
+
+-- classes that get a row (and a saved assignment) in the /rally window
+local GRID = { PALADIN = true, WARRIOR = true }
 
 -- target class columns (order matters for the sync message)
 local CLASSES = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
@@ -99,6 +103,16 @@ local PALADIN_PRIORITY = {
 }
 
 local REBUFF_BELOW = 60 -- seconds left before a buff counts as "missing"
+
+-- presumed standard buff for buffer classes that need no assignment;
+-- warriors without one alternate the two shouts by their roster position
+local function PresumedRow(class, indexInClass)
+	local key = CASTERS[class][1]
+	if class == "WARRIOR" then key = (indexInClass % 2 == 1) and "BSHOUT" or "CSHOUT" end
+	local row = {}
+	for _, c in ipairs(CLASSES) do row[c] = key end
+	return row
+end
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -209,11 +223,11 @@ local function SyncAll()
 	if not Channel() then return end
 	if IsOfficer() then
 		for _, r in ipairs(Roster()) do
-			if r.class == "PALADIN" then Send(r.name) end
+			if GRID[r.class] then Send(r.name) end
 		end
 	else
 		local _, myClass = UnitClass("player")
-		if myClass == "PALADIN" then Send(ME) end
+		if GRID[myClass] then Send(ME) end
 	end
 end
 
@@ -276,7 +290,11 @@ end
 
 local function Cycle(caster, targetClass, dir, wholeRow)
 	if not CanEdit(caster) then return end
-	local list = CASTERS.PALADIN -- the window only lists paladins
+	local cls
+	for _, r in ipairs(Roster()) do
+		if r.name == caster then cls = r.class end
+	end
+	local list = CASTERS[cls] or CASTERS.PALADIN -- blessings or shouts
 	local row = assigns[caster]
 	if not row then row = {}; assigns[caster] = row end
 	local idx = 0
@@ -322,7 +340,8 @@ local function GetRow(i)
 		Skin("cell", b)
 		b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 		b:SetScript("OnClick", function(self, button)
-			Cycle(row.caster, class, button == "RightButton" and -1 or 1, IsShiftKeyDown())
+			-- warriors: a shout covers the whole raid, so any click fills the row
+			Cycle(row.caster, class, button == "RightButton" and -1 or 1, IsShiftKeyDown() or row.class == "WARRIOR")
 		end)
 		row.cells[c] = b
 	end
@@ -332,15 +351,16 @@ end
 
 function Rally_Refresh()
 	if not frame or not frame:IsShown() then return end
-	-- the window lists paladins only; every other class casts its standard
-	-- buff without needing an assignment
+	-- the window lists paladins and warriors; every other class casts its
+	-- standard buff without needing an assignment
 	local roster = {}
 	for _, r in ipairs(Roster()) do
-		if r.class == "PALADIN" then roster[#roster + 1] = r end
+		if GRID[r.class] then roster[#roster + 1] = r end
 	end
 	for i, r in ipairs(roster) do
 		local row = GetRow(i)
 		row.caster = r.name
+		row.class = r.class
 		local color = RAID_CLASS_COLORS[r.class]
 		row.name:SetText(r.name)
 		row.name:SetTextColor(color.r, color.g, color.b)
@@ -362,13 +382,17 @@ local function AutoAssign()
 		print("|cff00ccffRally:|r only the leader or an assistant can auto-assign.")
 		return
 	end
-	local paladins = 0
+	local paladins, warriors = 0, 0
 	for _, r in ipairs(Roster()) do
 		if r.class == "PALADIN" then
 			paladins = paladins + 1
 			local row = {}
 			for _, class in ipairs(CLASSES) do row[class] = PALADIN_PRIORITY[class][paladins] end
 			assigns[r.name] = row
+			Send(r.name)
+		elseif r.class == "WARRIOR" then
+			warriors = warriors + 1
+			assigns[r.name] = PresumedRow("WARRIOR", warriors)
 			Send(r.name)
 		end
 	end
@@ -419,7 +443,7 @@ local function BuildWindow()
 
 	frame.empty = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	frame.empty:SetPoint("TOP", 0, -ROWS_TOP - 10)
-	frame.empty:SetText("No paladins in your group.")
+	frame.empty:SetText("No paladins or warriors in your group.")
 
 	local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	hint:SetPoint("BOTTOM", 0, 26)
@@ -463,17 +487,8 @@ local function PickSpell(buff)
 	if Known(buff.lesser) then return buff.lesser, true end
 end
 
--- non-paladins never get an assignment; their standard buff is presumed
--- (warriors alternate the two shouts by their position in the roster)
-local function PresumedRow(class, indexInClass)
-	local key = CASTERS[class][1]
-	if class == "WARRIOR" then key = (indexInClass % 2 == 1) and "BSHOUT" or "CSHOUT" end
-	local row = {}
-	for _, c in ipairs(CLASSES) do row[c] = key end
-	return row
-end
-
--- the row I cast from: saved assignment for paladins, presumed otherwise
+-- the row I cast from: saved assignment for paladins and warriors,
+-- presumed otherwise (an unassigned warrior keeps alternating shouts)
 local function MyRow()
 	local _, myClass = UnitClass("player")
 	if not CASTERS[myClass] then return nil end
@@ -482,7 +497,7 @@ local function MyRow()
 	for _, r in ipairs(Roster()) do
 		if r.class == myClass then
 			index = index + 1
-			if r.name == ME then return PresumedRow(myClass, index) end
+			if r.name == ME then return RallyDB.assign[ME] or PresumedRow(myClass, index) end
 		end
 	end
 end
