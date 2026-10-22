@@ -2,7 +2,7 @@
 ## Title: Rally
 ## Notes: Raid buff assignments for all classes (PallyPower-style, simplified)
 ## Author: You
-## Version: 0.1
+## Version: 1.0
 ## OptionalDeps: ElvUI
 ## SavedVariables: RallyDB
 
