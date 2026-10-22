@@ -8,11 +8,10 @@ if not S then return end
 Rally = Rally or {}
 
 -- kind is one of "window", "cell", "castbutton", "list" (see Skin() calls in Rally.lua)
-function Rally.Skin(kind, a, b, c)
-	if kind == "window" then -- a = frame, b = close button, c = auto-assign button
+function Rally.Skin(kind, a, b)
+	if kind == "window" then -- a = frame, b = close button
 		a:SetTemplate("Transparent")
 		S:HandleCloseButton(b)
-		S:HandleButton(c)
 	elseif kind == "cell" then -- a = grid cell button
 		a:SetTemplate("Default")
 		a:StyleButton()

@@ -421,18 +421,12 @@ local function BuildWindow()
 	frame.empty:SetPoint("TOP", 0, -ROWS_TOP - 10)
 	frame.empty:SetText("No paladins in your group.")
 
-	local auto = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	Size(auto, 120, 26)
-	auto:SetPoint("BOTTOMLEFT", PAD, 24)
-	auto:SetText("Auto-assign")
-	auto:SetScript("OnClick", AutoAssign)
-
 	local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	hint:SetPoint("BOTTOMRIGHT", -PAD, 26)
-	hint:SetJustifyH("RIGHT")
+	hint:SetPoint("BOTTOM", 0, 26)
+	hint:SetJustifyH("CENTER")
 	hint:SetText("Click: next   Shift-click: whole row   Right-click: previous")
 
-	Skin("window", frame, close, auto)
+	Skin("window", frame, close)
 end
 
 ---------------------------------------------------------------------------
@@ -499,7 +493,7 @@ end
 local function FakeScan() -- fake "missing buffs" list for the debug raid
 	local keys = { "KINGS", "MIGHT", "WISDOM", "SANC", "FORT", "SPIRIT", "SHADOW", "MARK", "AI", "BSHOUT", "CSHOUT", "HORN" }
 	local list = {}
-	for i = 1, math.min(#fakeRoster, 8) do
+	for i = 1, #fakeRoster do
 		local member, buffs, seen = fakeRoster[i], {}, {}
 		for _ = 1, math.random(3) do
 			local key = keys[math.random(#keys)]
@@ -553,7 +547,7 @@ local function Scan()
 end
 
 -- missing-buffs list shown above the cast button
-local BTN_W, MAX_LIST, LINE_H = 200, 10, 17
+local BTN_W, LINE_H = 200, 17
 local listFrame, listLines = nil, {}
 
 local function GetListLine(i)
@@ -562,11 +556,11 @@ local function GetListLine(i)
 	Size(line, BTN_W - 16, LINE_H)
 	line:SetPoint("TOPLEFT", listFrame, "TOPLEFT", 8, -8 - (i - 1) * LINE_H)
 	line.name = line:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	line.name:SetPoint("LEFT", 18, 0) -- icons come first; exact offset set in UpdateList
-	line.name:SetWidth(BTN_W - 16 - 54)
+	line.name:SetPoint("LEFT", 21, 0) -- icon comes first, tiny gap
+	line.name:SetWidth(BTN_W - 16 - 21)
 	line.name:SetJustifyH("LEFT")
 	line.icons = {}
-	for j = 1, 3 do -- priests can miss all three
+	for j = 1, 1 do -- one missing buff at a time; the next appears when applied
 		local tex = line:CreateTexture(nil, "ARTWORK")
 		Size(tex, 16, 16)
 		tex:SetPoint("LEFT", (j - 1) * 18, 0)
@@ -578,12 +572,12 @@ local function GetListLine(i)
 end
 
 local function UpdateList(list)
-	local n = math.min(#list, MAX_LIST)
+	local n = #list
 	for i = 1, n do
 		local line, entry = GetListLine(i), list[i]
 		local color = RAID_CLASS_COLORS[entry.class]
 		line.name:SetText(entry.name)
-		line.name:SetPoint("LEFT", #entry.buffs * 18 + 3, 0) -- tiny gap after the icons
+		line.name:SetPoint("LEFT", 21, 0)
 		line.name:SetTextColor(color.r, color.g, color.b)
 		for j, tex in ipairs(line.icons) do
 			local key = entry.buffs[j]
@@ -592,19 +586,7 @@ local function UpdateList(list)
 		line:Show()
 	end
 	for i = n + 1, #listLines do listLines[i]:Hide() end
-
-	local height = 16 + n * LINE_H
-	local extra = #list - n
-	if extra > 0 then
-		listFrame.more:ClearAllPoints()
-		listFrame.more:SetPoint("TOPLEFT", 8, -8 - n * LINE_H)
-		listFrame.more:SetText("+" .. extra .. " more")
-		listFrame.more:Show()
-		height = height + 14
-	else
-		listFrame.more:Hide()
-	end
-	listFrame:SetHeight(height)
+	listFrame:SetHeight(16 + n * LINE_H)
 	SetShown(listFrame, n > 0)
 end
 
@@ -646,7 +628,6 @@ local function BuildList()
 		insets = { left = 3, right = 3, top = 3, bottom = 3 },
 	})
 	listFrame:SetBackdropColor(0, 0, 0, 0.8)
-	listFrame.more = listFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	listFrame:Hide()
 	Skin("list", listFrame)
 end
