@@ -75,7 +75,7 @@ Assignments are stored in `RallyDB` (account-wide) and shared raid-wide over add
 
 ## PallyPower integration
 
-The bundled `PallyPowerSync.lua` bridges Rally and [PallyPower](https://www.wowace.com/projects/pally-power) users in the same raid, so both sides see the same paladin grid:
+The bundled `Sync.lua` bridges Rally and [PallyPower](https://www.wowace.com/projects/pally-power) users in the same raid, so both sides see the same paladin grid:
 
 - Assignments made **in PallyPower** appear in your `/rally` window and drive your buff button.
 - Assignments made **in Rally** (cell clicks, `/rally auto`, `/rally reset`) are re-broadcast as PallyPower messages.
@@ -90,4 +90,4 @@ The bundled `PallyPowerSync.lua` bridges Rally and [PallyPower](https://www.wowa
 | `/rallypp self` | Show and send your self-announcement |
 
 > [!NOTE]
-> The sync is a separate file loaded after Rally.lua. It only reads and writes Rally's saved assignments — Rally itself is untouched, and removing the file turns PallyPower off entirely.
+> `Sync.lua` owns all of Rally's addon-message traffic: Rally's own protocol (paladin and warrior rows) plus the PallyPower bridge. It talks to Rally.lua through a small interface on the `Rally` table, runs a paced outgoing queue for both protocols, and stays silent while `/rally debug` is active. Deleting the file turns all syncing off — Rally keeps working locally (also for offline play).

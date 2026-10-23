@@ -8,4 +8,4 @@
 
 Rally.lua
 Skin.lua
-PallyPowerSync.lua
+Sync.lua

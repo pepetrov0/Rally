@@ -2,7 +2,8 @@
      Paladins (blessings) and warriors (shouts) are assigned in the /rally
      window; every other buffer class casts its standard buff by presumption
      (druids add Thorns on top of Gift of the Wild). Assignments sync over
-     addon messages. One button casts the next buff that is missing
+     addon messages (Sync.lua owns all message traffic, incl. PallyPower).
+     One button casts the next buff that is missing
      (greater buffs, falling back to lesser buffs when out of reagents).
      /rally        toggle the assignment window
      /rally auto   auto-assign everyone
@@ -11,9 +12,10 @@
 ]]
 
 Rally = Rally or {} -- Skin.lua adds Rally.Skin when ElvUI is present
-local PREFIX = "RALLY"
 local ME = UnitName("player")
 local assigns -- the assignment table in use: real RallyDB.assign, or fake in debug
+
+function Rally.Assigns() return assigns end -- Sync.lua reads and writes the table in use
 
 ---------------------------------------------------------------------------
 -- Data
@@ -89,6 +91,8 @@ local GRID = { PALADIN = true, WARRIOR = true }
 -- target class columns (order matters for the sync message)
 local CLASSES = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "DEATHKNIGHT", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
 
+Rally.GRID, Rally.CLASSES, Rally.ASSIGN = GRID, CLASSES, ASSIGN -- Sync.lua wire format
+
 -- auto-assign: blessings per target class in order of priority.
 -- Paladin #1 (by name) gets entry 1, paladin #2 gets entry 2, ...
 local PALADIN_PRIORITY = {
@@ -139,11 +143,6 @@ local function Units()
 	return t
 end
 
-local function Channel()
-	if GetNumRaidMembers() > 0 then return "RAID" end
-	if GetNumPartyMembers() > 0 then return "PARTY" end
-end
-
 local function IsOfficer()
 	if GetNumRaidMembers() > 0 then return IsRaidLeader() or IsRaidOfficer() end
 	if GetNumPartyMembers() > 0 then return IsPartyLeader() end
@@ -164,11 +163,13 @@ local function SenderIsOfficer(name)
 	end
 	return false
 end
+Rally.IsOfficer, Rally.SenderIsOfficer = IsOfficer, SenderIsOfficer -- Sync.lua authority checks
 
 ---------------------------------------------------------------------------
 -- Debug: fake raid of random classes to preview the window (/rally debug)
 ---------------------------------------------------------------------------
 local debugOn, fakeRoster, fakeDB = false
+function Rally.DebugOn() return debugOn end -- Sync.lua ignores real traffic in debug
 local SYL_A = { "Al", "Bra", "Cyn", "Drak", "Elu", "Fen", "Grim", "Hal", "Kor", "Lyr", "Mor", "Sel", "Thra", "Vor" }
 local SYL_B = { "ad", "din", "gar", "ion", "ka", "mon", "rus", "sha", "tha", "var", "wyn", "zil" }
 
@@ -207,31 +208,7 @@ local function Roster() -- list of buffers currently in the group
 	return list
 end
 
----------------------------------------------------------------------------
--- Sync: one message per buffer, "R|name|k1,k2,...,k10" ("-" = nothing)
----------------------------------------------------------------------------
-local queue = {}
-
-local function Send(caster)
-	if debugOn then return end -- never broadcast the fake raid
-	local ch = Channel()
-	if not ch then return end
-	local row, parts = assigns[caster] or {}, {}
-	for i, class in ipairs(CLASSES) do parts[i] = row[class] or "-" end
-	queue[#queue + 1] = { msg = "R|" .. caster .. "|" .. table.concat(parts, ","), ch = ch }
-end
-
-local function SyncAll()
-	if not Channel() then return end
-	if IsOfficer() then
-		for _, r in ipairs(Roster()) do
-			if GRID[r.class] then Send(r.name) end
-		end
-	else
-		local _, myClass = UnitClass("player")
-		if GRID[myClass] then Send(ME) end
-	end
-end
+Rally.Roster = Roster -- Sync.lua enumerates grid casters for SyncAll
 
 ---------------------------------------------------------------------------
 -- Assignment window
@@ -309,7 +286,7 @@ local function Cycle(caster, targetClass, dir, wholeRow)
 	else
 		row[targetClass] = value
 	end
-	Send(caster)
+	Rally.SendRow(caster)
 	Rally_Refresh()
 end
 
@@ -391,11 +368,11 @@ local function AutoAssign()
 			local row = {}
 			for _, class in ipairs(CLASSES) do row[class] = PALADIN_PRIORITY[class][paladins] end
 			assigns[r.name] = row
-			Send(r.name)
+			Rally.SendRow(r.name)
 		elseif r.class == "WARRIOR" then
 			warriors = warriors + 1
 			assigns[r.name] = PresumedRow("WARRIOR", warriors)
-			Send(r.name)
+			Rally.SendRow(r.name)
 		end
 	end
 	Rally_Refresh()
@@ -763,27 +740,18 @@ end
 -- Events
 ---------------------------------------------------------------------------
 local driver = CreateFrame("Frame")
-local tick, qtick, syncAt, lastCount = 0, 0, nil, 0
+local tick = 0
 
 driver:SetScript("OnUpdate", function(_, elapsed)
-	tick, qtick = tick + elapsed, qtick + elapsed
-	if qtick > 0.2 and #queue > 0 then
-		qtick = 0
-		local m = table.remove(queue, 1)
-		SendAddonMessage(PREFIX, m.msg, m.ch)
-	end
-	if syncAt and GetTime() >= syncAt then syncAt = nil; SyncAll() end
+	tick = tick + elapsed
 	if tick > 1 then tick = 0; if btn then UpdateButton() end end
 end)
 
 driver:RegisterEvent("PLAYER_LOGIN")
-driver:RegisterEvent("RAID_ROSTER_UPDATE")
-driver:RegisterEvent("PARTY_MEMBERS_CHANGED")
-driver:RegisterEvent("CHAT_MSG_ADDON")
 driver:RegisterEvent("PLAYER_REGEN_DISABLED")
 driver:RegisterEvent("PLAYER_REGEN_ENABLED")
 
-driver:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
+driver:SetScript("OnEvent", function(_, event)
 	if event == "PLAYER_LOGIN" then
 		RallyDB = RallyDB or {}
 		RallyDB.assign = RallyDB.assign or {}
@@ -791,20 +759,6 @@ driver:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
 		BuildWindow()
 		BuildButton()
 		UpdateButton()
-	elseif event == "CHAT_MSG_ADDON" then
-		local prefix, msg, _, sender = a1, a2, a3, a4
-		if prefix ~= PREFIX or sender == ME then return end
-		if debugOn then return end -- the fake view must not ingest real syncs
-		local cmd, caster, data = strsplit("|", msg)
-		if cmd ~= "R" or not caster or not data then return end
-		if sender ~= caster and not SenderIsOfficer(sender) then return end
-		local row, i = {}, 0
-		for tok in string.gmatch(data, "[^,]+") do
-			i = i + 1
-			if CLASSES[i] and ASSIGN[tok] then row[CLASSES[i]] = tok end
-		end
-		assigns[caster] = row
-		Rally_Refresh()
 	elseif event == "PLAYER_REGEN_DISABLED" then
 		-- entering combat: Enable/Disable and SetAttribute are refused once the
 		-- lockdown is up, and this event fires before that, so this is the last
@@ -818,11 +772,6 @@ driver:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
 			btn:Enable()
 		end
 		UpdateButton()
-	else -- roster changed
-		local count = GetNumRaidMembers() + GetNumPartyMembers()
-		if count > lastCount then syncAt = GetTime() + 3 end
-		lastCount = count
-		Rally_Refresh()
 	end
 end)
 
@@ -856,7 +805,7 @@ SLASH_RALLY1 = "/rally"
 SlashCmdList["RALLY"] = function(msg)
 	if msg == "reset" then
 		wipe(assigns)
-		SyncAll()
+		Rally.SyncAll()
 		Rally_Refresh()
 		print("|cff00ccffRally:|r assignments cleared.")
 	elseif msg == "debug" then
