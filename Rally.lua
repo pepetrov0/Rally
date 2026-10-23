@@ -634,13 +634,16 @@ local function UpdateButton()
 
 	local _, myClass = UnitClass("player")
 	if not debugOn and not CASTERS[myClass] then -- this class casts nothing: no button
-		btn:Hide()
+		if not inCombat then btn:Hide() end
 		return
 	end
-	btn:Show() -- visible for caster classes; the text states how much is missing
-	-- in combat the spell attributes can't change, so disable the button and
-	-- keep whatever target it had; it re-enables when combat ends
-	if inCombat then btn:Disable() else btn:Enable() end
+	-- combat lockdown refuses Show/Hide on a protected button, so only touch
+	-- them out of combat; Enable/Disable likewise happen at the combat
+	-- transitions (PLAYER_REGEN_DISABLED/ENABLED), not here
+	if not inCombat then
+		btn:Show() -- visible for caster classes; the text states how much is missing
+		btn:Enable()
+	end
 	if #list == 0 then -- everybody is buffed
 		flashStart = nil -- fresh 60s the next time buffs go missing
 		if not inCombat then
@@ -777,6 +780,7 @@ driver:RegisterEvent("PLAYER_LOGIN")
 driver:RegisterEvent("RAID_ROSTER_UPDATE")
 driver:RegisterEvent("PARTY_MEMBERS_CHANGED")
 driver:RegisterEvent("CHAT_MSG_ADDON")
+driver:RegisterEvent("PLAYER_REGEN_DISABLED")
 driver:RegisterEvent("PLAYER_REGEN_ENABLED")
 
 driver:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
@@ -801,7 +805,18 @@ driver:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
 		end
 		assigns[caster] = row
 		Rally_Refresh()
+	elseif event == "PLAYER_REGEN_DISABLED" then
+		-- entering combat: Enable/Disable and SetAttribute are refused once the
+		-- lockdown is up, and this event fires before that, so this is the last
+		-- chance to make the button inert until combat ends
+		btn:Disable()
+		btn:SetAttribute("type", nil) -- a stale pre-combat spell must not go off
+		UpdateButton()
 	elseif event == "PLAYER_REGEN_ENABLED" then
+		if btn then -- re-arm: UpdateButton sets a fresh spell/unit out of combat
+			btn:SetAttribute("type", "spell")
+			btn:Enable()
+		end
 		UpdateButton()
 	else -- roster changed
 		local count = GetNumRaidMembers() + GetNumPartyMembers()

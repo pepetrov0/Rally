@@ -47,7 +47,7 @@ An always-visible secure button that states the buff state right on it:
 - **Right-click** — toggle the assignment window
 - **Shift-drag** — move the button (position is remembered)
 
-It reads "All good." when everything is covered; otherwise it shows a "N missing!" count, and its icon says which buff it would cast next — while buffs are missing, the button slowly flashes white. The list above the button shows who still needs what until then. During combat the button can't change what it would cast; it picks up again as soon as combat ends.
+It reads "All good." when everything is covered; otherwise it shows a "N missing!" count, and its icon says which buff it would cast next — while buffs are missing, the button slowly flashes white. The list above the button shows who still needs what until then. During combat the button is disabled — buffing in combat is off; the count and list still update, and casting picks up once combat ends.
 
 ### The assignment window
 
