@@ -618,7 +618,12 @@ local function UpdateButton()
 	UpdateList(list)
 	if InCombatLockdown() then return end -- the secure button can't change in combat
 
-	btn:Show() -- always visible; the text states how much is missing
+	local _, myClass = UnitClass("player")
+	if not debugOn and not CASTERS[myClass] then -- this class casts nothing: no button
+		btn:Hide()
+		return
+	end
+	btn:Show() -- visible for caster classes; the text states how much is missing
 	if #list == 0 then -- everybody is buffed
 		btn:SetAttribute("spell", nil)
 		btn:SetAttribute("unit", nil)
