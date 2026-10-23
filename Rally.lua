@@ -529,9 +529,13 @@ end
 
 -- Walks everyone in the group for the buffs assigned to me. Dead, offline
 -- and out-of-range raiders are skipped entirely (no list entry, no count).
--- Returns list = players missing something (each with the buff keys missing),
--- and cast = the first buff I can actually cast right now (every listed unit
--- is in range already).
+-- Returns list = players missing something in two consecutive scans (each
+-- with the buff keys missing), and cast = the first buff I can actually cast
+-- right now (every listed unit is in range already). The two-scan rule is
+-- there because a buff being overridden by someone else's cast vanishes
+-- from the aura list for a frame or two; a scan landing in that gap must
+-- not flash the missing-buff card over a buff the player actually has.
+local seenMissing = {}
 local function Scan()
 	if debugOn then return FakeScan() end
 	local list, cast = {}, nil
@@ -543,7 +547,7 @@ local function Scan()
 		if opt then
 			for _, bkey in ipairs(opt.buffs) do
 				local buff = BUFFS[bkey]
-				local spell, isLesser = PickSpell(buff)
+				local spell = PickSpell(buff)
 				if spell then
 					for _, u in ipairs(units) do
 						local _, uclass = UnitClass(u)
@@ -553,22 +557,29 @@ local function Scan()
 							local name = UnitName(u)
 							local entry = byName[name]
 							if not entry then
-								entry = { name = name, class = class, buffs = {} }
+								entry = { name = name, class = class, buffs = {},
+									castIt = { key = bkey, spell = spell, unit = buff.self and "player" or u } }
 								byName[name] = entry
 								list[#list + 1] = entry
 							end
 							entry.buffs[#entry.buffs + 1] = bkey
-							if not cast then
-								cast = { buff = buff, key = bkey, spell = spell, lesser = isLesser,
-									unit = buff.self and "player" or u, name = name }
-							end
 						end
 					end
 				end
 			end
 		end
 	end
-	return list, cast
+	local now, confirmed = {}, {}
+	for _, e in ipairs(list) do now[e.name] = true end
+	for name in pairs(seenMissing) do if not now[name] then seenMissing[name] = nil end end
+	for _, e in ipairs(list) do
+		if seenMissing[e.name] then
+			confirmed[#confirmed + 1] = e
+			if not cast then cast = e.castIt end
+		end
+		seenMissing[e.name] = true
+	end
+	return confirmed, cast
 end
 
 -- missing-buffs list shown above the cast button
