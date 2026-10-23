@@ -509,9 +509,6 @@ local function MyRow()
 	end
 end
 
--- Walks everyone in the group for the buffs assigned to me.
--- Returns list = players missing something (each with the buff keys missing),
--- and cast = the first buff I can actually cast right now (in range).
 local function FakeScan() -- fake "missing buffs" list for the debug raid
 	local keys = { "KINGS", "MIGHT", "WISDOM", "SANC", "FORT", "SPIRIT", "SHADOW", "MARK", "AI", "BSHOUT", "CSHOUT", "HORN" }
 	local list = {}
@@ -530,6 +527,11 @@ local function FakeScan() -- fake "missing buffs" list for the debug raid
 	return list
 end
 
+-- Walks everyone in the group for the buffs assigned to me. Dead, offline
+-- and out-of-range raiders are skipped entirely (no list entry, no count).
+-- Returns list = players missing something (each with the buff keys missing),
+-- and cast = the first buff I can actually cast right now (every listed unit
+-- is in range already).
 local function Scan()
 	if debugOn then return FakeScan() end
 	local list, cast = {}, nil
@@ -546,7 +548,8 @@ local function Scan()
 					for _, u in ipairs(units) do
 						local _, uclass = UnitClass(u)
 						if uclass == class and UnitIsConnected(u) and UnitIsVisible(u) and not UnitIsDeadOrGhost(u)
-							and not HasBuff(u, buff) then
+							and not HasBuff(u, buff)
+							and (buff.self or IsSpellInRange(spell, u) ~= 0) then
 							local name = UnitName(u)
 							local entry = byName[name]
 							if not entry then
@@ -555,7 +558,7 @@ local function Scan()
 								list[#list + 1] = entry
 							end
 							entry.buffs[#entry.buffs + 1] = bkey
-							if not cast and (buff.self or IsSpellInRange(spell, u) ~= 0) then
+							if not cast then
 								cast = { buff = buff, key = bkey, spell = spell, lesser = isLesser,
 									unit = buff.self and "player" or u, name = name }
 							end
