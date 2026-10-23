@@ -459,7 +459,7 @@ end
 ---------------------------------------------------------------------------
 -- Cast button: casts the next missing assigned buff
 ---------------------------------------------------------------------------
-local btn
+local btn, flashStart
 
 local function HasBuff(unit, buff)
 	for i = 1, 40 do
@@ -616,7 +616,7 @@ local function UpdateButton()
 	if not btn then return end
 	local list, cast = Scan()
 	UpdateList(list)
-	if InCombatLockdown() then return end -- the secure button can't change in combat
+	local inCombat = InCombatLockdown()
 
 	local _, myClass = UnitClass("player")
 	if not debugOn and not CASTERS[myClass] then -- this class casts nothing: no button
@@ -624,9 +624,15 @@ local function UpdateButton()
 		return
 	end
 	btn:Show() -- visible for caster classes; the text states how much is missing
+	-- in combat the spell attributes can't change, so disable the button and
+	-- keep whatever target it had; it re-enables when combat ends
+	if inCombat then btn:Disable() else btn:Enable() end
 	if #list == 0 then -- everybody is buffed
-		btn:SetAttribute("spell", nil)
-		btn:SetAttribute("unit", nil)
+		flashStart = nil -- fresh 60s the next time buffs go missing
+		if not inCombat then
+			btn:SetAttribute("spell", nil)
+			btn:SetAttribute("unit", nil)
+		end
 		btn:SetText("All good.")
 		btn.iconFrame:Hide()
 		btn.flash:Hide()
@@ -635,15 +641,23 @@ local function UpdateButton()
 	local missing = 0
 	for _, e in ipairs(list) do missing = missing + #e.buffs end
 	btn:SetText(missing .. " missing!")
-	btn.flash:Show()
-	if cast then
+	if inCombat then
+		btn.flash:Hide()
+		flashStart = nil -- combat pauses/resets the 60s
+	else
+		flashStart = flashStart or GetTime()
+		if GetTime() - flashStart < 60 then btn.flash:Show() else btn.flash:Hide() end -- a minute of being ignored: stop
+	end
+	if cast and not inCombat then
 		btn:SetAttribute("spell", cast.spell)
 		btn:SetAttribute("unit", cast.unit)
 		btn.icon:SetTexture(BuffIcon(cast.key))
 		btn.iconFrame:Show()
-	else -- people are missing buffs, but none are in range
-		btn:SetAttribute("spell", nil)
-		btn:SetAttribute("unit", nil)
+	else -- people are missing buffs, but none can be cast right now (out of range, or in combat)
+		if not inCombat then
+			btn:SetAttribute("spell", nil)
+			btn:SetAttribute("unit", nil)
+		end
 		btn.iconFrame:Hide()
 	end
 end
