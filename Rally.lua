@@ -455,6 +455,22 @@ end
 
 local function Known(spell) return GetSpellInfo(spell) ~= nil end
 
+-- How far away a raider may stand and still be listed. 3.3.5 has no
+-- yard-exact distance API, so we use the native distance checks:
+-- CheckInteractDistance(unit, 1) is 28 yd, UnitInRange(unit) is the 40 yd
+-- one. The spell's own range picks the bucket, so a 30 yd single-target
+-- buff is not offered for someone 35 yd away.
+local function InRange(unit, range)
+	if range and range < 40 then return CheckInteractDistance(unit, 1) end
+	return (UnitInRange and UnitInRange(unit)) or CheckInteractDistance(unit, 1)
+end
+
+-- max range of a spell in yards (nil when the spell is unknown)
+local function SpellRange(spell)
+	local _, _, _, _, _, range = GetSpellInfo(spell)
+	return range
+end
+
 -- greater version if we know it and have the reagents, else the lesser one
 local function PickSpell(buff)
 	if not buff.lesser then
@@ -528,11 +544,14 @@ local function Scan()
 				local buff = BUFFS[bkey]
 				local spell = PickSpell(buff)
 				if spell then
-					for _, u in ipairs(units) do
+					local range = SpellRange(spell)
+					-- a self buff (shout, horn) is only cast on the player,
+					-- so only the player can be "missing" it
+					for _, u in ipairs(buff.self and { "player" } or units) do
 						local _, uclass = UnitClass(u)
 						if uclass == class and UnitIsConnected(u) and UnitIsVisible(u) and not UnitIsDeadOrGhost(u)
 							and not HasBuff(u, buff)
-							and (buff.self or IsSpellInRange(spell, u) ~= 0) then
+							and (buff.self or InRange(u, range)) then
 							local name = UnitName(u)
 							local entry = byName[name]
 							if not entry then
