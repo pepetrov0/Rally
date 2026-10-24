@@ -1,9 +1,12 @@
 --[[ Rally sync (3.3.5a) - all of Rally's addon-message traffic in one file.
 
 Rally's own language (paladin AND warrior rows):
-  R|<caster>|<k1,...,k10>   one caster's assignment row; tokens are Rally's
+  R;<caster>;<k1,...,k10>   one caster's assignment row; tokens are Rally's
                             assign keys (KINGS, BSHOUT, ...), "-" = none;
-                            columns follow Rally.CLASSES.
+                            columns follow Rally.CLASSES. ";" is the delimiter
+                            because some 3.3.5 servers strip "|" from addon
+                            messages as a malformed chat-link escape (old
+                            senders using "|" are still accepted).
   Row edits are broadcast via Rally.SendRow, or all at once via
   Rally.SyncAll, through one paced outgoing queue. Incoming rows are
   accepted from the caster himself or an officer, and validated against
@@ -33,10 +36,8 @@ Blessing ids (wotlk): 1 Wisdom, 2 Might, 3 Kings, 4 Sanctuary
 Blessing ids (classic): 1 Wisdom, 2 Might, 3 Kings, 6 Sanctuary
 Nothing is sent or ingested while /rally debug is active (fake raid only).
 
-Commands:  /rallypp debug        print every PLPWR message received
-           /rallypp mode wotlk|classic   blessing id table (default wotlk)
-           /rallypp req          ask PallyPower users to announce themselves
-           /rallypp self         print and send the SELF message we announce
+Traffic logging: /rally log prints every RALLY/PLPWR message (sent and
+received) to the chat window.
 ]]
 
 local ME = UnitName("player")
@@ -75,7 +76,7 @@ end
 ---------------------------------------------------------------------------
 
 local out, acc = {}, 0
-local SendSelf, selfAt, syncAt -- forward: PP announce / delayed Rally.SyncAll
+local SendSelf, selfAt, syncAt, OnPP -- forward: PP announce / delayed Rally.SyncAll / PP message parser
 
 local function Send(prefix, msg, ch)
 	if ch then out[#out + 1] = { prefix = prefix, msg = msg, ch = ch } end
@@ -97,15 +98,23 @@ end)
 -- Rally's own protocol (paladins and warriors)
 ---------------------------------------------------------------------------
 
+-- "|" is stripped by some 3.3.5 servers, so new rows use ";"; both parse
+local function SplitRow(msg)
+	return strsplit(msg:find("|", 1, true) and "|" or ";", msg)
+end
+
 -- broadcast one caster's row; Rally.lua calls this after every edit
 function Rally.SendRow(caster)
 	if Rally.DebugOn() then return end -- never broadcast the fake raid
 	local t, ch = Rally.Assigns(), Channel()
 	if not t or not ch then return end
-	local row = t[caster] or {}
+	-- no row means "I have no information", not "clear it": broadcasting it as
+	-- all "-" would wipe the assignment from every client that does know it
+	local row = t[caster]
+	if not row then return end
 	local parts = {}
 	for i, class in ipairs(Rally.CLASSES) do parts[i] = row[class] or "-" end
-	Send(RALLY_PREFIX, "R|" .. caster .. "|" .. table.concat(parts, ","), ch)
+	Send(RALLY_PREFIX, "R;" .. caster .. ";" .. table.concat(parts, ","), ch)
 end
 
 -- broadcast every grid caster's row (officer) or just ours (everyone else)
@@ -124,7 +133,7 @@ end
 
 local function OnRally(sender, msg)
 	if sender == ME then return end
-	local cmd, caster, data = strsplit("|", msg)
+	local cmd, caster, data = SplitRow(msg)
 	if cmd ~= "R" or not caster or not data then return end
 	if sender ~= caster and not Rally.SenderIsOfficer(sender) then return end
 	local row, i = {}, 0
@@ -134,7 +143,9 @@ local function OnRally(sender, msg)
 	end
 	local t = Rally.Assigns()
 	if not t then return end
-	t[caster] = row
+	-- an all-"-" row means "no assignment": storing an empty table would make
+	-- a warrior's row truthy (no presumed shout) and echo back on every sync
+	t[caster] = next(row) and row or nil
 	Rally_Refresh()
 end
 
@@ -155,7 +166,7 @@ for id, token in ipairs(PP_CLASS) do TOKEN_TO_PP[token] = id end
 local known = {} -- known[paladin][ppClassId] = blessingId as last seen/sent on PLPWR
 
 local function Dbg(...)
-	if RallyDB and RallyDB.ppDebug then print("|cff00ccffRallyPP:|r", ...) end
+	if RallyDB and RallyDB.ppDebug then print("|cff00ccffRally sync:|r", ...) end
 end
 
 local function CurMode()
@@ -170,10 +181,10 @@ local function IdToKey(id)
 end
 
 local lastReq = 0
-local function RequestPP(force)
+local function RequestPP()
 	local ch = Channel()
 	if not ch then return end
-	if not force and GetTime() - lastReq < 5 then return end
+	if GetTime() - lastReq < 5 then return end
 	lastReq = GetTime()
 	Send(PP_PREFIX, "REQ", ch)
 end
@@ -213,12 +224,12 @@ local function BuildSelf()
 end
 
 local lastSelf = 0
-function SendSelf(force)
+function SendSelf()
 	if Rally.DebugOn() then return end -- the fake raid announces nothing
 	if select(2, UnitClass("player")) ~= "PALADIN" then return end
 	local ch = Channel()
 	if not ch then return end
-	if not force and GetTime() - lastSelf < 3 then return end
+	if GetTime() - lastSelf < 3 then return end
 	lastSelf = GetTime()
 	Send(PP_PREFIX, BuildSelf(), ch)
 	Send(PP_PREFIX, "SYMCOUNT " .. GetItemCount(SYMBOL_OF_KINGS), ch)
@@ -253,8 +264,18 @@ local function Push(name, row, ch)
 end
 
 hooksecurefunc("SendAddonMessage", function(prefix, msg, ch)
-	if prefix ~= RALLY_PREFIX or type(msg) ~= "string" then return end
-	local cmd, caster, data = strsplit("|", msg)
+	if Rally.DebugOn() or type(msg) ~= "string" then return end
+	if prefix ~= RALLY_PREFIX and prefix ~= PP_PREFIX then return end
+	Dbg(">", prefix, ch, msg)
+	if prefix == PP_PREFIX then
+		-- PallyPower changes its own assignments without hearing its own
+		-- message: mirror that edit into Rally (SELF can be stale, skip it)
+		if msg:match("^ASSIGN ") or msg:match("^MASSIGN ") or msg == "CLEAR" then
+			OnPP(ME, msg, true)
+		end
+		return
+	end
+	local cmd, caster, data = SplitRow(msg)
 	if cmd ~= "R" or not caster or not data then return end
 	if ClassOf(caster) ~= "PALADIN" then return end -- PallyPower only knows paladins
 	local map, row, i = MODES[CurMode()], {}, 0
@@ -276,8 +297,12 @@ local function SetCell(name, ppClass, blessing)
 	known[name][ppClass] = blessing
 	if not (RallyDB and RallyDB.assign) then return end
 	local row = RallyDB.assign[name]
-	if not row then row = {}; RallyDB.assign[name] = row end
+	if not row then
+		if blessing <= 0 then return end -- nothing to clear
+		row = {}; RallyDB.assign[name] = row
+	end
 	row[PP_CLASS[ppClass]] = (blessing > 0) and IdToKey(blessing) or nil
+	if not next(row) then RallyDB.assign[name] = nil end -- an empty row is "no assignment"
 end
 
 local function ClearPaladin(name)
@@ -285,9 +310,8 @@ local function ClearPaladin(name)
 	if RallyDB and RallyDB.assign then RallyDB.assign[name] = nil end
 end
 
-local function OnPP(sender, msg)
-	if sender == ME or type(msg) ~= "string" then return end
-	Dbg(sender, msg)
+function OnPP(sender, msg, local_)
+	if (sender == ME and not local_) or type(msg) ~= "string" then return end
 	local cmd = msg:match("^(%a+)")
 	local touched = false
 
@@ -304,18 +328,18 @@ local function OnPP(sender, msg)
 		end
 	elseif cmd == "ASSIGN" then
 		local name, c, v = msg:match("^ASSIGN (%S+) (%d+) (%d+)")
-		if name and (name == sender or Rally.SenderIsOfficer(sender)) then
+		if name and (local_ or name == sender or Rally.SenderIsOfficer(sender)) then
 			SetCell(name, tonumber(c), tonumber(v))
 			touched = true
 		end
 	elseif cmd == "MASSIGN" then
 		local name, v = msg:match("^MASSIGN (%S+) (%d+)")
-		if name and (name == sender or Rally.SenderIsOfficer(sender)) then
+		if name and (local_ or name == sender or Rally.SenderIsOfficer(sender)) then
 			for c = 1, #PP_CLASS do SetCell(name, c, tonumber(v)) end
 			touched = true
 		end
 	elseif cmd == "CLEAR" then
-		if Rally.SenderIsOfficer(sender) then
+		if local_ or Rally.SenderIsOfficer(sender) then
 			if RallyDB and RallyDB.assign then
 				for name in pairs(RallyDB.assign) do
 					if ClassOf(name) == "PALADIN" then ClearPaladin(name) end
@@ -342,9 +366,9 @@ events:RegisterEvent("PARTY_MEMBERS_CHANGED")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
 	if event == "CHAT_MSG_ADDON" then
-		if Rally.DebugOn() then return end -- the fake view must not ingest real syncs
-		if a1 == RALLY_PREFIX then OnRally(a4, a2)
-		elseif a1 == PP_PREFIX then OnPP(a4, a2) end
+		if Rally.DebugOn() or (a1 ~= RALLY_PREFIX and a1 ~= PP_PREFIX) then return end
+		Dbg("<", a1, a4, a2) -- prefix, sender, message
+		if a1 == RALLY_PREFIX then OnRally(a4, a2) else OnPP(a4, a2) end
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		selfAt = GetTime() + 4 -- introduce ourselves (paladins) after login
 	else -- roster changed
@@ -360,23 +384,3 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
 		Rally_Refresh()
 	end
 end)
-
-SLASH_RALLYPP1 = "/rallypp"
-SlashCmdList["RALLYPP"] = function(msg)
-	local a, b = (msg or ""):match("^(%S*)%s*(%S*)")
-	RallyDB = RallyDB or {}
-	if a == "debug" then
-		RallyDB.ppDebug = not RallyDB.ppDebug
-		print("|cff00ccffRallyPP:|r debug " .. (RallyDB.ppDebug and "on" or "off"))
-	elseif a == "mode" and MODES[b] then
-		RallyDB.ppMode = b
-		print("|cff00ccffRallyPP:|r blessing ids set to " .. b)
-	elseif a == "req" then
-		RequestPP(true)
-	elseif a == "self" then
-		print("|cff00ccffRallyPP:|r " .. BuildSelf())
-		SendSelf(true)
-	else
-		print("|cff00ccffRallyPP:|r /rallypp debug | mode wotlk|classic | req | self   (mode: " .. CurMode() .. ")")
-	end
-end

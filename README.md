@@ -34,6 +34,7 @@ A lightweight buff-assignment and one-button buffing addon for World of Warcraft
 | `/rally` | Toggle the assignment window |
 | `/rally auto` | Auto-assign blessings to every paladin and shouts to warriors (leader/assistant only) |
 | `/rally reset` | Clear all assignments |
+| `/rally log` | Log every sync addon message (RALLY and PallyPower, sent and received) to the chat window |
 | `/rally debug` | Preview the window and cast button with a fake raid |
 
 > [!TIP]
@@ -81,13 +82,6 @@ The bundled `Sync.lua` bridges Rally and [PallyPower](https://www.wowace.com/pro
 - Assignments made **in Rally** (cell clicks, `/rally auto`, `/rally reset`) are re-broadcast as PallyPower messages.
 - Rally announces itself as a paladin (with your Rally assignments as its blessings) and answers PallyPower's "announce yourselves" request.
 - Warrior shouts have no PallyPower equivalent, so that part of a Rally grid stays local.
-
-| Command | Action |
-|---|---|
-| `/rallypp debug` | Print every PallyPower message received |
-| `/rallypp mode wotlk\|classic` | Switch the blessing-id map (default: `wotlk`) |
-| `/rallypp req` | Ask PallyPower users to announce themselves |
-| `/rallypp self` | Show and send your self-announcement |
 
 > [!NOTE]
 > `Sync.lua` owns all of Rally's addon-message traffic: Rally's own protocol (paladin and warrior rows) plus the PallyPower bridge. It talks to Rally.lua through a small interface on the `Rally` table, runs a paced outgoing queue for both protocols, and stays silent while `/rally debug` is active. Deleting the file turns all syncing off — Rally keeps working locally (also for offline play).

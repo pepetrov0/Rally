@@ -8,6 +8,7 @@
      /rally        toggle the assignment window
      /rally auto   auto-assign everyone
      /rally reset  clear all assignments
+     /rally log    log every sync message (sent and received) to chat
      /rally debug  fake raid of random classes to preview the window
 ]]
 
@@ -479,7 +480,8 @@ local function MyRow()
 			index = index + 1
 			if r.name == ME then
 				-- only grid classes read saved assignments; everyone else presumes
-				if GRID[myClass] and RallyDB.assign[ME] then return RallyDB.assign[ME] end
+				local saved = GRID[myClass] and RallyDB.assign[ME]
+				if saved and next(saved) then return saved end
 				return PresumedRow(myClass, index)
 			end
 		end
@@ -805,9 +807,18 @@ SLASH_RALLY1 = "/rally"
 SlashCmdList["RALLY"] = function(msg)
 	if msg == "reset" then
 		wipe(assigns)
+		-- an empty table is an explicit clear (SyncAll sends it as all "-");
+		-- a missing row is not broadcast at all, so mark the roster's rows
+		for _, r in ipairs(Roster()) do
+			if GRID[r.class] then assigns[r.name] = {} end
+		end
 		Rally.SyncAll()
 		Rally_Refresh()
 		print("|cff00ccffRally:|r assignments cleared.")
+	elseif msg == "log" then
+		RallyDB = RallyDB or {}
+		RallyDB.ppDebug = not RallyDB.ppDebug
+		print("|cff00ccffRally:|r sync log " .. (RallyDB.ppDebug and "on" or "off"))
 	elseif msg == "debug" then
 		ToggleDebug()
 	elseif msg == "auto" then
