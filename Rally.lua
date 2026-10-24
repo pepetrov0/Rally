@@ -24,6 +24,8 @@ function Rally.Assigns() return assigns end -- Sync.lua reads and writes the tab
 -- spell  = greater/group version (needs reagents)
 -- lesser = single-target fallback, used when reagents are missing
 -- self   = true: cast on yourself (shouts, horn); others need a target
+-- reach  = how far a self buff spreads from you (it hits the group around
+--          the caster, so that radius matters, not the cast range)
 local BUFFS = {
 	KINGS   = { label = "Kings",  spell = "Greater Blessing of Kings",     lesser = "Blessing of Kings",     auras = { "Blessing of Kings", "Greater Blessing of Kings" } },
 	MIGHT   = { label = "Might",  spell = "Greater Blessing of Might",     lesser = "Blessing of Might",     auras = { "Blessing of Might", "Greater Blessing of Might" } },
@@ -35,9 +37,9 @@ local BUFFS = {
 	MARK    = { label = "Wild",   spell = "Gift of the Wild",              lesser = "Mark of the Wild",      auras = { "Mark of the Wild", "Gift of the Wild" } },
 	THORNS  = { label = "Thorns", spell = "Thorns",                        auras = { "Thorns" } },
 	AI      = { label = "Int",    spell = "Arcane Brilliance",             lesser = "Arcane Intellect",      auras = { "Arcane Intellect", "Arcane Brilliance" } },
-	BSHOUT  = { label = "BShout", spell = "Battle Shout",                  auras = { "Battle Shout" }, self = true },
-	CSHOUT  = { label = "CShout", spell = "Commanding Shout",              auras = { "Commanding Shout" }, self = true },
-	HORN    = { label = "Horn",   spell = "Horn of Winter",                auras = { "Horn of Winter" }, self = true },
+	BSHOUT  = { label = "BShout", spell = "Battle Shout",                  auras = { "Battle Shout" }, self = true, reach = 100 },
+	CSHOUT  = { label = "CShout", spell = "Commanding Shout",              auras = { "Commanding Shout" }, self = true, reach = 30 },
+	HORN    = { label = "Horn",   spell = "Horn of Winter",                auras = { "Horn of Winter" }, self = true, reach = 30 },
 }
 
 -- spell ids, only used to look up icons (works even if the spell isn't known)
@@ -458,8 +460,8 @@ local function Known(spell) return GetSpellInfo(spell) ~= nil end
 -- How far away a raider may stand and still be listed. 3.3.5 has no
 -- yard-exact distance API, so we use the native distance checks:
 -- CheckInteractDistance(unit, 1) is 28 yd, UnitInRange(unit) is the 40 yd
--- one. The spell's own range picks the bucket, so a 30 yd single-target
--- buff is not offered for someone 35 yd away.
+-- one. The range we have for the buff picks the bucket, so a 30 yd buff
+-- is not offered for someone 35 yd away.
 local function InRange(unit, range)
 	if range and range < 40 then return CheckInteractDistance(unit, 1) end
 	return (UnitInRange and UnitInRange(unit)) or CheckInteractDistance(unit, 1)
@@ -544,14 +546,14 @@ local function Scan()
 				local buff = BUFFS[bkey]
 				local spell = PickSpell(buff)
 				if spell then
-					local range = SpellRange(spell)
-					-- a self buff (shout, horn) is only cast on the player,
-					-- so only the player can be "missing" it
-					for _, u in ipairs(buff.self and { "player" } or units) do
+					-- a self buff is cast on the player but still lands on
+					-- everyone around them, so everyone is checked for it
+					local range = buff.self and buff.reach or SpellRange(spell)
+					for _, u in ipairs(units) do
 						local _, uclass = UnitClass(u)
 						if uclass == class and UnitIsConnected(u) and UnitIsVisible(u) and not UnitIsDeadOrGhost(u)
 							and not HasBuff(u, buff)
-							and (buff.self or InRange(u, range)) then
+							and InRange(u, range) then
 							local name = UnitName(u)
 							local entry = byName[name]
 							if not entry then
