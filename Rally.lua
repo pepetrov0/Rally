@@ -1045,7 +1045,8 @@ local function BarKeys()
 	if (MY_CLASS == "HUNTER" or MY_CLASS == "WARLOCK") and UnitExists("pet") then keys[#keys + 1] = "PETFOOD" end
 	for _, key in ipairs(BAR_ORDER) do
 		local caster = BAR_CASTER[key]
-		if (caster and present[caster] or shown[key]) and not SkipBuff(key, size) then keys[#keys + 1] = key end
+		-- a buff I actually have is always shown, whatever the assignments say
+		if (caster and present[caster] or shown[key] or AuraLeft(BUFFS[key])) and not SkipBuff(key, size) then keys[#keys + 1] = key end
 	end
 	return keys
 end
