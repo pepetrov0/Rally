@@ -47,9 +47,6 @@ local BUFFS = {
 	BSHOUT  = { label = "BShout", spell = "Battle Shout",                  auras = { "Battle Shout" }, self = true, reach = 100 },
 	CSHOUT  = { label = "CShout", spell = "Commanding Shout",              auras = { "Commanding Shout" }, self = true, reach = 30 },
 	HORN    = { label = "Horn",   spell = "Horn of Winter",                auras = { "Horn of Winter" }, self = true, reach = 30 },
-	-- personal: not assignable, kept up on yourself
-	INNERFIRE = { label = "Inner Fire", spell = "Inner Fire", auras = { "Inner Fire" } },
-	NORTH = { label = "Flask of the North", spell = "Flask of the North", auras = {} }, -- an item, not a spell; kept up while no flask is active
 	-- resurrections: not assignable, only used for the dead check
 	REZ_PALADIN = { label = "Redemption",     spell = "Redemption",     auras = {} },
 	REZ_PRIEST  = { label = "Resurrection",   spell = "Resurrection",   auras = {} },
@@ -63,7 +60,6 @@ local SPELL_IDS = {
 	FORT = 21562, SPIRIT = 27681, SHADOW = 27683,
 	MARK = 21849, THORNS = 467, AI = 23028,
 	BSHOUT = 6673, CSHOUT = 469, HORN = 57330,
-	INNERFIRE = 48168,
 	REZ_PALADIN = 7328, REZ_PRIEST = 2006, REZ_SHAMAN = 2008, REZ_DRUID = 50769,
 }
 
@@ -73,8 +69,7 @@ local ICON_CROP = { 0.07, 0.93, 0.07, 0.93 }
 local function BuffIcon(key)
 	local buff = BUFFS[key]
 	if not buff.icon then
-		buff.icon = select(3, GetSpellInfo(buff.spell)) or (SPELL_IDS[key] and select(3, GetSpellInfo(SPELL_IDS[key])))
-			or (key == "NORTH" and select(10, GetItemInfo(buff.spell)))
+		buff.icon = select(3, GetSpellInfo(buff.spell)) or select(3, GetSpellInfo(SPELL_IDS[key]))
 	end
 	return buff.icon or FALLBACK_ICON
 end
@@ -485,14 +480,6 @@ end
 
 local function Known(spell) return GetSpellInfo(spell) ~= nil end
 
-local ConsumableInfo -- defined with the bar
-
--- Flask of the North is an item: its name when you carry one
-local function NorthUse()
-	local name = BUFFS.NORTH.spell
-	if (GetItemCount(name) or 0) > 0 then return name end
-end
-
 -- How far away a raider may stand and still be listed. 3.3.5 has no
 -- yard-exact distance API, so we use the native distance checks:
 -- CheckInteractDistance(unit, 1) is 28 yd, UnitInRange(unit) is the 40 yd
@@ -613,7 +600,8 @@ local function Scan()
 		local dead, rez = ScanDead(units, rezKey)
 		if #dead > 0 then return dead, rez, true end
 	end
-	local row = MyRow() or {}
+	local row = MyRow()
+	if not row then return list end
 	local byClass -- units grouped by class, built on first use and shared by all buffs
 	for _, class in ipairs(CLASSES) do
 		local opt = row[class] and ASSIGN[row[class]]
@@ -659,26 +647,6 @@ local function Scan()
 				end
 			end
 		end
-	end
-	local fire = BUFFS.INNERFIRE
-	if MY_CLASS == "PRIEST" and Known(fire.spell) and not HasBuff("player", fire) then
-		local entry = byName[ME]
-		if not entry then
-			entry = { name = ME, class = MY_CLASS, buffs = {}, castIt = { key = "INNERFIRE", spell = fire.spell, unit = "player" } }
-			byName[ME] = entry
-			list[#list + 1] = entry
-		end
-		entry.buffs[#entry.buffs + 1] = "INNERFIRE"
-	end
-	local north = NorthUse()
-	if north and not ConsumableInfo("FLASK") then
-		local entry = byName[ME]
-		if not entry then
-			entry = { name = ME, class = MY_CLASS, buffs = {}, castIt = { key = "NORTH", spell = north, unit = "player", item = true } }
-			byName[ME] = entry
-			list[#list + 1] = entry
-		end
-		entry.buffs[#entry.buffs + 1] = "NORTH"
 	end
 	local now, confirmed, time = {}, {}, GetTime()
 	for _, e in ipairs(list) do now[e.name] = true end
@@ -786,9 +754,8 @@ local function ArmCombat()
 	btn.armed, btn.armedKeys, btn.armedClasses = nil, {}, nil
 	btn:SetAttribute("rally-n", 0)
 	local row = MyRow()
-	if UnitIsDeadOrGhost("player") then return false end
-	if MY_CLASS == "PALADIN" and row then return ArmPaladin(row) end
-	row = row or {}
+	if not row or UnitIsDeadOrGhost("player") then return false end
+	if MY_CLASS == "PALADIN" then return ArmPaladin(row) end
 	local spells, seen, reagent, needs, keyOf = {}, {}, 0, {}, {}
 	for _, class in ipairs(CLASSES) do
 		local opt = row[class] and ASSIGN[row[class]]
@@ -806,10 +773,6 @@ local function ArmCombat()
 				end
 			end
 		end
-	end
-	if MY_CLASS == "PRIEST" and Known(BUFFS.INNERFIRE.spell) then
-		spells[#spells + 1] = BUFFS.INNERFIRE.spell
-		keyOf[BUFFS.INNERFIRE.spell] = "INNERFIRE"
 	end
 	for i = #spells, 1, -1 do
 		if needs[spells[i]] and not HasReagents(spells[i], reagent) then table.remove(spells, i) end
@@ -847,7 +810,7 @@ local function UpdateButton()
 	end
 	UpdateList(list)
 
-	if not debugOn and not CASTERS[MY_CLASS] and not REZ[MY_CLASS] and not NorthUse() then -- this class casts nothing: no button
+	if not debugOn and not CASTERS[MY_CLASS] and not REZ[MY_CLASS] then -- this class casts nothing: no button
 		if not inCombat then btn:Hide() end
 		return
 	end
@@ -878,12 +841,6 @@ local function UpdateButton()
 	flashStart = flashStart or GetTime()
 	if GetTime() - flashStart < 60 then btn.flash:Show() else btn.flash:Hide() end -- a minute of being ignored: stop
 	if cast then
-		if cast.item then
-			btn:SetAttribute("type", "macro")
-			btn:SetAttribute("macrotext", "/use " .. cast.spell)
-		else
-			btn:SetAttribute("type", "spell")
-		end
 		btn:SetAttribute("spell", cast.spell)
 		btn:SetAttribute("unit", cast.unit)
 		btn.target, btn.rez = cast.target, cast.rez
@@ -1040,7 +997,7 @@ local CONSUMABLES = {
 local CONSUMABLE_LABELS = { FOOD = "Well Fed", FLASK = "Flask", ELIXIR1 = "Elixir", ELIXIR2 = "Elixir", ELIXIR3 = "Elixir", PETFOOD = "Pet's Well Fed" }
 
 -- time left on the matching aura (0 = no timer, nil = absent), its icon and index
-function ConsumableInfo(key)
+local function ConsumableInfo(key)
 	local c = CONSUMABLES[key]
 	local found = 0
 	for i = 1, 40 do
@@ -1085,7 +1042,6 @@ local function BarKeys()
 			if ConsumableInfo("ELIXIR" .. n) then keys[#keys + 1] = "ELIXIR" .. n end
 		end
 	end
-	if MY_CLASS == "PRIEST" and Known(BUFFS.INNERFIRE.spell) then keys[#keys + 1] = "INNERFIRE" end
 	if (MY_CLASS == "HUNTER" or MY_CLASS == "WARLOCK") and UnitExists("pet") then keys[#keys + 1] = "PETFOOD" end
 	for _, key in ipairs(BAR_ORDER) do
 		local caster = BAR_CASTER[key]
