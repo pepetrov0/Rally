@@ -573,11 +573,15 @@ local function ScanDead(units, key)
 	return list, pick and pick.castIt
 end
 
+local THORNS_MAX = 10 -- Thorns is only worth casting in groups this small
+local function SkipBuff(bkey, size) return bkey == "THORNS" and size > THORNS_MAX end
+
 local function Scan()
 	if debugOn then return FakeScan() end
 	local list, cast = {}, nil
 	if UnitIsDeadOrGhost("player") then return list end
 	local units, byName = Units(), {}
+	local size = #units
 	local _, myClass = UnitClass("player")
 	local rezKey = REZ[myClass]
 	if rezKey and not InCombatLockdown() and Known(BUFFS[rezKey].spell) then
@@ -591,7 +595,8 @@ local function Scan()
 		if opt then
 			for _, bkey in ipairs(opt.buffs) do
 				local buff = BUFFS[bkey]
-				local spell, lesser = PickSpell(buff)
+				local spell, lesser
+				if not SkipBuff(bkey, size) then spell, lesser = PickSpell(buff) end
 				-- the lesser version of a self buff is single-target
 				local onSelf = buff.self and not lesser
 				if spell then
