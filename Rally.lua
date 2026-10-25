@@ -547,7 +547,7 @@ local seenMissing = {}
 -- reason, that raider is passed over for a while so the next one is tried;
 -- they stay on the missing list, the button just stops aiming at them.
 local SKIP_FOR = 15
-local skipUntil, lastTarget, lastRez = {}, nil, false
+local skipUntil, rezSkipUntil, lastTarget, lastRez = {}, {}, nil, false
 local rezPick -- name of the dead raider the button is aiming at, kept until it fails
 
 -- Dead raiders in range, when I can resurrect. Returns list, cast like Scan:
@@ -563,7 +563,7 @@ local function ScanDead(units, key)
 			local entry = { name = name, class = uclass, buffs = { key },
 				castIt = { key = key, spell = spell, unit = u, target = name, rez = true } }
 			list[#list + 1] = entry
-			if (skipUntil[name] or 0) < GetTime() then open[#open + 1] = entry end
+			if (rezSkipUntil[name] or 0) < GetTime() and (skipUntil[name] or 0) < GetTime() then open[#open + 1] = entry end
 		end
 	end
 	local pick
@@ -852,7 +852,7 @@ driver:SetScript("OnEvent", function(_, event, unit)
 			if event ~= "UNIT_SPELLCAST_SUCCEEDED" then
 				skipUntil[lastTarget] = GetTime() + SKIP_FOR
 			elseif lastRez then -- they stay dead until they accept; don't recast on them meanwhile
-				skipUntil[lastTarget] = GetTime() + 60
+				rezSkipUntil[lastTarget] = GetTime() + 60 -- separate, so buffing them isn't blocked
 			end
 			lastTarget = nil
 			if btn then UpdateButton() end
