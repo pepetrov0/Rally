@@ -40,6 +40,11 @@ local BUFFS = {
 	BSHOUT  = { label = "BShout", spell = "Battle Shout",                  auras = { "Battle Shout" }, self = true, reach = 100 },
 	CSHOUT  = { label = "CShout", spell = "Commanding Shout",              auras = { "Commanding Shout" }, self = true, reach = 30 },
 	HORN    = { label = "Horn",   spell = "Horn of Winter",                auras = { "Horn of Winter" }, self = true, reach = 30 },
+	-- resurrections: not assignable, only used for the dead check
+	REZ_PALADIN = { label = "Redemption",     spell = "Redemption",     auras = {} },
+	REZ_PRIEST  = { label = "Resurrection",   spell = "Resurrection",   auras = {} },
+	REZ_SHAMAN  = { label = "Ancestral Spirit", spell = "Ancestral Spirit", auras = {} },
+	REZ_DRUID   = { label = "Revive",         spell = "Revive",         auras = {} },
 }
 
 -- spell ids, only used to look up icons (works even if the spell isn't known)
@@ -48,6 +53,7 @@ local SPELL_IDS = {
 	FORT = 21562, SPIRIT = 27681, SHADOW = 27683,
 	MARK = 21849, THORNS = 467, AI = 23028,
 	BSHOUT = 6673, CSHOUT = 469, HORN = 57330,
+	REZ_PALADIN = 7328, REZ_PRIEST = 2006, REZ_SHAMAN = 2008, REZ_DRUID = 50769,
 }
 
 local FALLBACK_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -87,6 +93,9 @@ local CASTERS = {
 	WARRIOR     = { "BSHOUT", "CSHOUT" },
 	DEATHKNIGHT = { "HORN" },
 }
+
+-- classes that can resurrect; dead raiders come before any buff
+local REZ = { PALADIN = "REZ_PALADIN", PRIEST = "REZ_PRIEST", SHAMAN = "REZ_SHAMAN", DRUID = "REZ_DRUID" }
 
 -- classes that get a row (and a saved assignment) in the /rally window
 local GRID = { PALADIN = true, WARRIOR = true }
@@ -538,13 +547,45 @@ local seenMissing = {}
 -- reason, that raider is passed over for a while so the next one is tried;
 -- they stay on the missing list, the button just stops aiming at them.
 local SKIP_FOR = 15
-local skipUntil, lastTarget = {}, nil
+local skipUntil, lastTarget, lastRez = {}, nil, false
+local rezPick -- name of the dead raider the button is aiming at, kept until it fails
+
+-- Dead raiders in range, when I can resurrect. Returns list, cast like Scan:
+-- the pick is random, but sticks until it is resurrected or a cast on it fails,
+-- then another random one is tried.
+local function ScanDead(units, key)
+	local spell = BUFFS[key].spell
+	local range, list, open = SpellRange(spell), {}, {}
+	for _, u in ipairs(units) do
+		if UnitIsDead(u) and not UnitIsGhost(u) and UnitIsConnected(u) and UnitIsVisible(u) and InRange(u, range) then
+			local name = UnitName(u)
+			local _, uclass = UnitClass(u)
+			local entry = { name = name, class = uclass, buffs = { key },
+				castIt = { key = key, spell = spell, unit = u, target = name, rez = true } }
+			list[#list + 1] = entry
+			if (skipUntil[name] or 0) < GetTime() then open[#open + 1] = entry end
+		end
+	end
+	local pick
+	for _, e in ipairs(open) do if e.name == rezPick then pick = e end end
+	if not pick and #open > 0 then pick = open[math.random(#open)] end
+	rezPick = pick and pick.name
+	return list, pick and pick.castIt
+end
+
 local function Scan()
 	if debugOn then return FakeScan() end
 	local list, cast = {}, nil
-	local row = MyRow()
-	if not row or UnitIsDeadOrGhost("player") then return list end
+	if UnitIsDeadOrGhost("player") then return list end
 	local units, byName = Units(), {}
+	local _, myClass = UnitClass("player")
+	local rezKey = REZ[myClass]
+	if rezKey and Known(BUFFS[rezKey].spell) then
+		local dead, rez = ScanDead(units, rezKey)
+		if #dead > 0 then return dead, rez, true end
+	end
+	local row = MyRow()
+	if not row then return list end
 	for _, class in ipairs(CLASSES) do
 		local opt = row[class] and ASSIGN[row[class]]
 		if opt then
@@ -637,12 +678,12 @@ end
 
 local function UpdateButton()
 	if not btn then return end
-	local list, cast = Scan()
+	local list, cast, dead = Scan()
 	UpdateList(list)
 	local inCombat = InCombatLockdown()
 
 	local _, myClass = UnitClass("player")
-	if not debugOn and not CASTERS[myClass] then -- this class casts nothing: no button
+	if not debugOn and not CASTERS[myClass] and not REZ[myClass] then -- this class casts nothing: no button
 		if not inCombat then btn:Hide() end
 		return
 	end
@@ -673,7 +714,7 @@ local function UpdateButton()
 	end
 	local missing = 0
 	for _, e in ipairs(list) do missing = missing + #e.buffs end
-	btn:SetText(missing .. " missing!")
+	btn:SetText(missing .. (dead and " dead!" or " missing!"))
 	if inCombat then
 		btn.flash:Hide()
 		flashStart = nil -- combat pauses/resets the 60s
@@ -684,7 +725,7 @@ local function UpdateButton()
 	if cast and not inCombat then
 		btn:SetAttribute("spell", cast.spell)
 		btn:SetAttribute("unit", cast.unit)
-		btn.target = cast.target
+		btn.target, btn.rez = cast.target, cast.rez
 		btn.icon:SetTexture(BuffIcon(cast.key))
 		btn.iconFrame:Show()
 	else -- people are missing buffs, but none can be cast right now (out of range, or in combat)
@@ -757,6 +798,7 @@ local function BuildButton()
 	end)
 	btn:HookScript("PreClick", function(self)
 		lastTarget = self:GetAttribute("unit") and not InCombatLockdown() and btn.target or nil
+		lastRez = btn.rez
 	end)
 	btn:HookScript("OnClick", function(_, button)
 		if button == "RightButton" then
@@ -809,6 +851,8 @@ driver:SetScript("OnEvent", function(_, event, unit)
 		if unit == "player" and lastTarget then
 			if event ~= "UNIT_SPELLCAST_SUCCEEDED" then
 				skipUntil[lastTarget] = GetTime() + SKIP_FOR
+			elseif lastRez then -- they stay dead until they accept; don't recast on them meanwhile
+				skipUntil[lastTarget] = GetTime() + 60
 			end
 			lastTarget = nil
 			if btn then UpdateButton() end

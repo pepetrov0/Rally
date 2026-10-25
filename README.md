@@ -12,6 +12,7 @@ A lightweight buff-assignment and one-button buffing addon for World of Warcraft
 ## Features
 
 - 🎯 **One-button buffing** — an always-visible button that shows the missing-buff count and casts the next buff; dead, offline and out-of-range raiders are ignored until they qualify again
+- ⚰️ **Resurrections first** — paladins, priests, shamans and druids get "N dead!" on the button before any buff; click to resurrect a random dead raider in range, and if the cast fails the next one is tried
 - 🛡️ **Only paladins and warriors need planning** — blessings per target class for paladins, raid-wide shout rows for warriors; druids cast Wild + Thorns on everyone; every other buffer class casts its standard buff automatically
 - 🔄 **Live raid sync** — assignments broadcast over addon messages; only the raid leader or an assistant can edit them
 - 🤝 **PallyPower bridge** — shares the paladin grid with PallyPower users, in both directions
