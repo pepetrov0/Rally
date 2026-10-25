@@ -533,6 +533,12 @@ end
 -- from the aura list for a frame or two; a scan landing in that gap must
 -- not flash the missing-buff card over a buff the player actually has.
 local seenMissing = {}
+-- 3.3.5 has no line-of-sight check, so a raider behind a wall passes the
+-- distance test and the button keeps aiming at them. When a cast fails for any
+-- reason, that raider is passed over for a while so the next one is tried;
+-- they stay on the missing list, the button just stops aiming at them.
+local SKIP_FOR = 15
+local skipUntil, lastTarget = {}, nil
 local function Scan()
 	if debugOn then return FakeScan() end
 	local list, cast = {}, nil
@@ -558,7 +564,8 @@ local function Scan()
 							local entry = byName[name]
 							if not entry then
 								entry = { name = name, class = class, buffs = {},
-									castIt = { key = bkey, spell = spell, unit = buff.self and "player" or u } }
+									castIt = { key = bkey, spell = spell, unit = buff.self and "player" or u,
+											target = not buff.self and name or nil } }
 								byName[name] = entry
 								list[#list + 1] = entry
 							end
@@ -575,7 +582,9 @@ local function Scan()
 	for _, e in ipairs(list) do
 		if seenMissing[e.name] then
 			confirmed[#confirmed + 1] = e
-			if not cast then cast = e.castIt end
+			if not cast and (not e.castIt.target or (skipUntil[e.castIt.target] or 0) < GetTime()) then
+				cast = e.castIt
+			end
 		end
 		seenMissing[e.name] = true
 	end
@@ -644,6 +653,13 @@ local function UpdateButton()
 		btn:Show() -- visible for caster classes; the text states how much is missing
 		btn:Enable()
 	end
+	if inCombat then -- the button is inert in combat, so say so
+		btn:SetText("In combat!")
+		btn.iconFrame:Hide()
+		btn.flash:Hide()
+		flashStart = nil -- combat pauses/resets the 60s
+		return
+	end
 	if #list == 0 then -- everybody is buffed
 		flashStart = nil -- fresh 60s the next time buffs go missing
 		if not inCombat then
@@ -668,6 +684,7 @@ local function UpdateButton()
 	if cast and not inCombat then
 		btn:SetAttribute("spell", cast.spell)
 		btn:SetAttribute("unit", cast.unit)
+		btn.target = cast.target
 		btn.icon:SetTexture(BuffIcon(cast.key))
 		btn.iconFrame:Show()
 	else -- people are missing buffs, but none can be cast right now (out of range, or in combat)
@@ -738,6 +755,9 @@ local function BuildButton()
 		local p, _, rp, x, y = self:GetPoint()
 		RallyDB.pos = { p, rp, x, y }
 	end)
+	btn:HookScript("PreClick", function(self)
+		lastTarget = self:GetAttribute("unit") and not InCombatLockdown() and btn.target or nil
+	end)
 	btn:HookScript("OnClick", function(_, button)
 		if button == "RightButton" then
 			if frame:IsShown() then frame:Hide() else frame:Show() end
@@ -773,8 +793,11 @@ end)
 driver:RegisterEvent("PLAYER_LOGIN")
 driver:RegisterEvent("PLAYER_REGEN_DISABLED")
 driver:RegisterEvent("PLAYER_REGEN_ENABLED")
+driver:RegisterEvent("UNIT_SPELLCAST_FAILED")
+driver:RegisterEvent("UNIT_SPELLCAST_INTERRUPTED")
+driver:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 
-driver:SetScript("OnEvent", function(_, event)
+driver:SetScript("OnEvent", function(_, event, unit)
 	if event == "PLAYER_LOGIN" then
 		RallyDB = RallyDB or {}
 		RallyDB.assign = RallyDB.assign or {}
@@ -782,6 +805,14 @@ driver:SetScript("OnEvent", function(_, event)
 		BuildWindow()
 		BuildButton()
 		UpdateButton()
+	elseif event:find("^UNIT_SPELLCAST") then
+		if unit == "player" and lastTarget then
+			if event ~= "UNIT_SPELLCAST_SUCCEEDED" then
+				skipUntil[lastTarget] = GetTime() + SKIP_FOR
+			end
+			lastTarget = nil
+			if btn then UpdateButton() end
+		end
 	elseif event == "PLAYER_REGEN_DISABLED" then
 		-- entering combat: Enable/Disable and SetAttribute are refused once the
 		-- lockdown is up, and this event fires before that, so this is the last
