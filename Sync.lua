@@ -11,8 +11,8 @@ Rally's own language (paladin AND warrior rows):
   Rally.SyncAll, through one paced outgoing queue. Incoming rows are
   accepted from the caster himself or an officer, and validated against
   Rally.ASSIGN. Sync.lua reads the small interface Rally.lua exposes on
-  the Rally table: Assigns, CLASSES, ASSIGN, GRID, Roster, IsOfficer,
-  SenderIsOfficer, DebugOn.
+  the Rally table: Assigns, CLASSES, ASSIGN, GRID, Roster, Units,
+  IsOfficer, SenderIsOfficer, DebugOn.
 
 PallyPower's language (prefix PLPWR), bridged to Rally's paladin rows:
   ASSIGN <paladin> <classId> <blessingId>     one cell (0 = none)
@@ -41,6 +41,7 @@ received) to the chat window.
 ]]
 
 local ME = UnitName("player")
+local _, MY_CLASS = UnitClass("player")
 local RALLY_PREFIX = "RALLY"
 local PP_PREFIX = "PLPWR"
 
@@ -53,20 +54,9 @@ local function Channel()
 	if GetNumPartyMembers() > 0 then return "PARTY" end
 end
 
-local function Units()
-	local t, n = {}, GetNumRaidMembers()
-	if n > 0 then
-		for i = 1, n do t[#t + 1] = "raid" .. i end
-	else
-		t[1] = "player"
-		for i = 1, GetNumPartyMembers() do t[#t + 1] = "party" .. i end
-	end
-	return t
-end
-
 local function ClassOf(name)
-	if name == ME then return (select(2, UnitClass("player"))) end
-	for _, u in ipairs(Units()) do
+	if name == ME then return MY_CLASS end
+	for _, u in ipairs(Rally.Units()) do
 		if UnitName(u) == name then return (select(2, UnitClass(u))) end
 	end
 end
@@ -78,21 +68,35 @@ end
 local out, acc = {}, 0
 local SendSelf, selfAt, syncAt, OnPP -- forward: PP announce / delayed Rally.SyncAll / PP message parser
 
+-- The driver's OnUpdate only runs while it is shown, i.e. while something is
+-- queued or scheduled; it hides itself once idle so it costs nothing per frame.
+local driver = CreateFrame("Frame")
+
 local function Send(prefix, msg, ch)
-	if ch then out[#out + 1] = { prefix = prefix, msg = msg, ch = ch } end
+	if ch then
+		out[#out + 1] = { prefix = prefix, msg = msg, ch = ch }
+		driver:Show()
+	end
 end
 
-local driver = CreateFrame("Frame")
-driver:SetScript("OnUpdate", function(_, elapsed)
+local function Schedule(delay) -- returns the time to run at, and wakes the driver
+	driver:Show()
+	return GetTime() + delay
+end
+
+driver:SetScript("OnUpdate", function(self, elapsed)
 	acc = acc + elapsed
 	if acc > 0.15 and #out > 0 then
 		acc = 0
 		local m = table.remove(out, 1)
 		SendAddonMessage(m.prefix, m.msg, m.ch)
 	end
-	if selfAt and GetTime() >= selfAt then selfAt = nil; SendSelf() end
-	if syncAt and GetTime() >= syncAt then syncAt = nil; Rally.SyncAll() end
+	local now = GetTime()
+	if selfAt and now >= selfAt then selfAt = nil; SendSelf() end
+	if syncAt and now >= syncAt then syncAt = nil; Rally.SyncAll() end
+	if #out == 0 and not selfAt and not syncAt then self:Hide() end
 end)
+driver:Hide()
 
 ---------------------------------------------------------------------------
 -- Rally's own protocol (paladins and warriors)
@@ -126,8 +130,7 @@ function Rally.SyncAll()
 			if Rally.GRID[r.class] then Rally.SendRow(r.name) end
 		end
 	else
-		local _, myClass = UnitClass("player")
-		if Rally.GRID[myClass] then Rally.SendRow(ME) end
+		if Rally.GRID[MY_CLASS] then Rally.SendRow(ME) end
 	end
 end
 
@@ -226,7 +229,7 @@ end
 local lastSelf = 0
 function SendSelf()
 	if Rally.DebugOn() then return end -- the fake raid announces nothing
-	if select(2, UnitClass("player")) ~= "PALADIN" then return end
+	if MY_CLASS ~= "PALADIN" then return end
 	local ch = Channel()
 	if not ch then return end
 	if GetTime() - lastSelf < 3 then return end
@@ -370,13 +373,13 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
 		Dbg("<", a1, a4, a2) -- prefix, sender, message
 		if a1 == RALLY_PREFIX then OnRally(a4, a2) else OnPP(a4, a2) end
 	elseif event == "PLAYER_ENTERING_WORLD" then
-		selfAt = GetTime() + 4 -- introduce ourselves (paladins) after login
+		selfAt = Schedule(4) -- introduce ourselves (paladins) after login
 	else -- roster changed
 		local count = GetNumRaidMembers() + GetNumPartyMembers()
 		if count > lastCount then
 			if not Rally.DebugOn() then -- the fake raid talks to nobody
-				syncAt = GetTime() + 3 -- let the roster settle, then Rally.SyncAll
-				selfAt = GetTime() + 2 -- and introduce ourselves (paladins)
+				syncAt = Schedule(3) -- let the roster settle, then Rally.SyncAll
+				selfAt = Schedule(2) -- and introduce ourselves (paladins)
 				RequestPP() -- PallyPower users answer with SELF
 			end
 		end

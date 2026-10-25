@@ -11,10 +11,16 @@
      /rally buffbar on|off  show or hide the buff bar
      /rally log    log every sync message (sent and received) to chat
      /rally debug  fake raid of random classes to preview the window
+
+     File layout: Data (buff tables) > Helpers > Debug raid > Assignment
+     window > Cast button (scan, arming, list) > Buff bar > Events > Slash.
+     A 1 Hz driver refreshes the button and the bar; everything else is
+     event driven.
 ]]
 
 Rally = Rally or {} -- Skin.lua adds Rally.Skin when ElvUI is present
 local ME = UnitName("player")
+local _, MY_CLASS = UnitClass("player") -- never changes, so looked up once
 local assigns -- the assignment table in use: real RallyDB.assign, or fake in debug
 
 function Rally.Assigns() return assigns end -- Sync.lua reads and writes the table in use
@@ -155,6 +161,13 @@ local function Units()
 	end
 	return t
 end
+
+local function GroupSize() -- same count as #Units(), without building the list
+	local n = GetNumRaidMembers()
+	if n > 0 then return n end
+	return 1 + GetNumPartyMembers()
+end
+Rally.Units = Units -- Sync.lua shares it
 
 local function IsOfficer()
 	if GetNumRaidMembers() > 0 then return IsRaidLeader() or IsRaidOfficer() end
@@ -499,18 +512,17 @@ end
 -- the row I cast from: saved assignment for paladins and warriors,
 -- presumed otherwise (an unassigned warrior keeps alternating shouts)
 local function MyRow()
-	local _, myClass = UnitClass("player")
-	if not CASTERS[myClass] then return nil end
-	if myClass == "PALADIN" then return RallyDB.assign[ME] end
+	if not CASTERS[MY_CLASS] then return nil end
+	if MY_CLASS == "PALADIN" then return RallyDB.assign[ME] end
 	local index = 0
 	for _, r in ipairs(Roster()) do
-		if r.class == myClass then
+		if r.class == MY_CLASS then
 			index = index + 1
 			if r.name == ME then
 				-- only grid classes read saved assignments; everyone else presumes
-				local saved = GRID[myClass] and RallyDB.assign[ME]
+				local saved = GRID[MY_CLASS] and RallyDB.assign[ME]
 				if saved and next(saved) then return saved end
-				return PresumedRow(myClass, index)
+				return PresumedRow(MY_CLASS, index)
 			end
 		end
 	end
@@ -556,7 +568,7 @@ local rezPick -- name of the dead raider the button is aiming at, kept until it 
 -- then another random one is tried.
 local function ScanDead(units, key)
 	local spell = BUFFS[key].spell
-	local range, list, open = SpellRange(spell), {}, {}
+	local range, list, open, now = SpellRange(spell), {}, {}, GetTime()
 	for _, u in ipairs(units) do
 		if UnitIsDead(u) and not UnitIsGhost(u) and UnitIsConnected(u) and UnitIsVisible(u) and InRange(u, range) then
 			local name = UnitName(u)
@@ -564,7 +576,7 @@ local function ScanDead(units, key)
 			local entry = { name = name, class = uclass, buffs = { key },
 				castIt = { key = key, spell = spell, unit = u, target = name, rez = true } }
 			list[#list + 1] = entry
-			if (rezSkipUntil[name] or 0) < GetTime() and (skipUntil[name] or 0) < GetTime() then open[#open + 1] = entry end
+			if (rezSkipUntil[name] or 0) < now and (skipUntil[name] or 0) < now then open[#open + 1] = entry end
 		end
 	end
 	local pick
@@ -583,30 +595,41 @@ local function Scan()
 	if UnitIsDeadOrGhost("player") then return list end
 	local units, byName = Units(), {}
 	local size = #units
-	local _, myClass = UnitClass("player")
-	local rezKey = REZ[myClass]
+	local rezKey = REZ[MY_CLASS]
 	if rezKey and not InCombatLockdown() and Known(BUFFS[rezKey].spell) then
 		local dead, rez = ScanDead(units, rezKey)
 		if #dead > 0 then return dead, rez, true end
 	end
 	local row = MyRow()
 	if not row then return list end
+	local byClass -- units grouped by class, built on first use and shared by all buffs
 	for _, class in ipairs(CLASSES) do
 		local opt = row[class] and ASSIGN[row[class]]
 		if opt then
+			if not byClass then
+				byClass = {}
+				for _, u in ipairs(units) do
+					local _, uclass = UnitClass(u)
+					if uclass then
+						local bucket = byClass[uclass]
+						if not bucket then bucket = {}; byClass[uclass] = bucket end
+						bucket[#bucket + 1] = u
+					end
+				end
+			end
+			local members = byClass[class]
 			for _, bkey in ipairs(opt.buffs) do
 				local buff = BUFFS[bkey]
 				local spell, lesser
-				if not SkipBuff(bkey, size) then spell, lesser = PickSpell(buff) end
+				if members and not SkipBuff(bkey, size) then spell, lesser = PickSpell(buff) end
 				-- the lesser version of a self buff is single-target
 				local onSelf = buff.self and not lesser
 				if spell then
 					-- a self buff is cast on the player but still lands on
 					-- everyone around them, so everyone is checked for it
 					local range = onSelf and buff.reach or SpellRange(spell)
-					for _, u in ipairs(units) do
-						local _, uclass = UnitClass(u)
-						if uclass == class and UnitIsConnected(u) and UnitIsVisible(u) and not UnitIsDeadOrGhost(u)
+					for _, u in ipairs(members) do
+						if UnitIsConnected(u) and UnitIsVisible(u) and not UnitIsDeadOrGhost(u)
 							and not HasBuff(u, buff)
 							and InRange(u, range) then
 							local name = UnitName(u)
@@ -625,13 +648,13 @@ local function Scan()
 			end
 		end
 	end
-	local now, confirmed = {}, {}
+	local now, confirmed, time = {}, {}, GetTime()
 	for _, e in ipairs(list) do now[e.name] = true end
 	for name in pairs(seenMissing) do if not now[name] then seenMissing[name] = nil end end
 	for _, e in ipairs(list) do
 		if seenMissing[e.name] then
 			confirmed[#confirmed + 1] = e
-			if not cast and (not e.castIt.target or (skipUntil[e.castIt.target] or 0) < GetTime()) then
+			if not cast and (not e.castIt.target or (skipUntil[e.castIt.target] or 0) < time) then
 				cast = e.castIt
 			end
 		end
@@ -653,14 +676,11 @@ local function GetListLine(i)
 	line.name:SetPoint("LEFT", 21, 0) -- icon comes first, tiny gap
 	line.name:SetWidth(BTN_W - 16 - 21)
 	line.name:SetJustifyH("LEFT")
-	line.icons = {}
-	for j = 1, 1 do -- one missing buff at a time; the next appears when applied
-		local tex = line:CreateTexture(nil, "ARTWORK")
-		Size(tex, 16, 16)
-		tex:SetPoint("LEFT", (j - 1) * 18, 0)
-		tex:SetTexCoord(unpack(ICON_CROP))
-		line.icons[j] = tex
-	end
+	-- one missing buff at a time; the next appears when it is applied
+	line.icon = line:CreateTexture(nil, "ARTWORK")
+	Size(line.icon, 16, 16)
+	line.icon:SetPoint("LEFT", 0, 0)
+	line.icon:SetTexCoord(unpack(ICON_CROP))
 	listLines[i] = line
 	return line
 end
@@ -671,12 +691,8 @@ local function UpdateList(list)
 		local line, entry = GetListLine(i), list[i]
 		local color = RAID_CLASS_COLORS[entry.class]
 		line.name:SetText(entry.name)
-		line.name:SetPoint("LEFT", 21, 0)
 		line.name:SetTextColor(color.r, color.g, color.b)
-		for j, tex in ipairs(line.icons) do
-			local key = entry.buffs[j]
-			if key then tex:SetTexture(BuffIcon(key)); tex:Show() else tex:Hide() end
-		end
+		line.icon:SetTexture(BuffIcon(entry.buffs[1]))
 		line:Show()
 	end
 	for i = n + 1, #listLines do listLines[i]:Hide() end
@@ -739,8 +755,7 @@ local function ArmCombat()
 	btn:SetAttribute("rally-n", 0)
 	local row = MyRow()
 	if not row or UnitIsDeadOrGhost("player") then return false end
-	local _, myClass = UnitClass("player")
-	if myClass == "PALADIN" then return ArmPaladin(row) end
+	if MY_CLASS == "PALADIN" then return ArmPaladin(row) end
 	local spells, seen, reagent, needs, keyOf = {}, {}, 0, {}, {}
 	for _, class in ipairs(CLASSES) do
 		local opt = row[class] and ASSIGN[row[class]]
@@ -795,31 +810,26 @@ local function UpdateButton()
 	end
 	UpdateList(list)
 
-	local _, myClass = UnitClass("player")
-	if not debugOn and not CASTERS[myClass] and not REZ[myClass] then -- this class casts nothing: no button
+	if not debugOn and not CASTERS[MY_CLASS] and not REZ[MY_CLASS] then -- this class casts nothing: no button
 		if not inCombat then btn:Hide() end
 		return
 	end
-	-- combat lockdown refuses Show/Hide on a protected button, so only touch
-	-- them out of combat; Enable/Disable likewise happen at the combat
-	-- transitions (PLAYER_REGEN_DISABLED/ENABLED), not here
-	if not inCombat then
-		btn:Show() -- visible for caster classes; the text states how much is missing
-		btn:Enable()
-	end
-	if inCombat then -- the button is inert in combat, so say so
+	-- combat lockdown refuses Show/Hide/SetAttribute on a protected button, so
+	-- only touch them out of combat; Enable/Disable and arming happen at the
+	-- combat transitions (PLAYER_REGEN_DISABLED/ENABLED), not here
+	if inCombat then -- the button only casts what ArmCombat armed, so say so
 		btn:SetText("In combat!")
 		btn.iconFrame:Hide()
 		btn.flash:Hide()
 		flashStart = nil -- combat pauses/resets the 60s
 		return
 	end
+	btn:Show() -- visible for caster classes; the text states how much is missing
+	btn:Enable()
 	if #list == 0 then -- everybody is buffed
 		flashStart = nil -- fresh 60s the next time buffs go missing
-		if not inCombat then
-			btn:SetAttribute("spell", nil)
-			btn:SetAttribute("unit", nil)
-		end
+		btn:SetAttribute("spell", nil)
+		btn:SetAttribute("unit", nil)
 		btn:SetText("All good.")
 		btn.iconFrame:Hide()
 		btn.flash:Hide()
@@ -828,24 +838,17 @@ local function UpdateButton()
 	local missing = 0
 	for _, e in ipairs(list) do missing = missing + #e.buffs end
 	btn:SetText(missing .. (dead and " dead!" or " missing!"))
-	if inCombat then
-		btn.flash:Hide()
-		flashStart = nil -- combat pauses/resets the 60s
-	else
-		flashStart = flashStart or GetTime()
-		if GetTime() - flashStart < 60 then btn.flash:Show() else btn.flash:Hide() end -- a minute of being ignored: stop
-	end
-	if cast and not inCombat then
+	flashStart = flashStart or GetTime()
+	if GetTime() - flashStart < 60 then btn.flash:Show() else btn.flash:Hide() end -- a minute of being ignored: stop
+	if cast then
 		btn:SetAttribute("spell", cast.spell)
 		btn:SetAttribute("unit", cast.unit)
 		btn.target, btn.rez = cast.target, cast.rez
 		btn.icon:SetTexture(BuffIcon(cast.key))
 		btn.iconFrame:Show()
-	else -- people are missing buffs, but none can be cast right now (out of range, or in combat)
-		if not inCombat then
-			btn:SetAttribute("spell", nil)
-			btn:SetAttribute("unit", nil)
-		end
+	else -- people are missing buffs, but none can be cast right now (e.g. out of range)
+		btn:SetAttribute("spell", nil)
+		btn:SetAttribute("unit", nil)
 		btn.iconFrame:Hide()
 	end
 end
@@ -1022,11 +1025,10 @@ local function BarKeys()
 	local present, shown = {}, {}
 	local roster = Roster()
 	for _, r in ipairs(roster) do present[r.class] = true end
-	local _, myClass = UnitClass("player")
-	local size = #Units()
+	local size = GroupSize()
 	for _, r in ipairs(roster) do
 		local row = assigns[r.name]
-		local key = row and row[myClass]
+		local key = row and row[MY_CLASS]
 		if key then for _, bkey in ipairs(ASSIGN[key].buffs) do shown[bkey] = true end end
 	end
 	if present.WARRIOR and not (shown.BSHOUT or shown.CSHOUT) then shown.BSHOUT, shown.CSHOUT = true, true end
@@ -1040,7 +1042,7 @@ local function BarKeys()
 			if ConsumableInfo("ELIXIR" .. n) then keys[#keys + 1] = "ELIXIR" .. n end
 		end
 	end
-	if (myClass == "HUNTER" or myClass == "WARLOCK") and UnitExists("pet") then keys[#keys + 1] = "PETFOOD" end
+	if (MY_CLASS == "HUNTER" or MY_CLASS == "WARLOCK") and UnitExists("pet") then keys[#keys + 1] = "PETFOOD" end
 	for _, key in ipairs(BAR_ORDER) do
 		local caster = BAR_CASTER[key]
 		if (caster and present[caster] or shown[key]) and not SkipBuff(key, size) then keys[#keys + 1] = key end
@@ -1184,6 +1186,8 @@ end
 local function PlaceBarIcon(f, i)
 	local horiz, flip = RallyDB.barHoriz, RallyDB.barFlip
 	local step = (i - 1) * (IconSize() + BAR_GAP)
+	Size(f, IconSize(), IconSize())
+	f.time:SetFont(DAMAGE_TEXT_FONT or STANDARD_TEXT_FONT, TextSize(), "OUTLINE") -- the combat text font
 	f:ClearAllPoints()
 	f.time:ClearAllPoints()
 	if horiz then
@@ -1199,6 +1203,9 @@ function UpdateBar()
 	if not bar then return end
 	if RallyDB.barOff then bar:Hide() return end
 	local keys = BarKeys()
+	-- size, font and anchors only change with the options or the icon's slot,
+	-- so they are applied when that signature differs, not on every tick
+	local layout = table.concat({ IconSize(), TextSize(), tostring(RallyDB.barHoriz), tostring(RallyDB.barFlip) }, ":")
 	for i, key in ipairs(keys) do
 		local f, left, icon, index = GetBarIcon(i)
 		if CONSUMABLES[key] then
@@ -1210,9 +1217,10 @@ function UpdateBar()
 			f.unit, f.spellId, f.label = "player", SPELL_IDS[key], BUFFS[key].label
 		end
 		f.auraIndex = left and index or nil
-		Size(f, IconSize(), IconSize())
-		f.time:SetFont(DAMAGE_TEXT_FONT or STANDARD_TEXT_FONT, TextSize(), "OUTLINE") -- the combat text font
-		PlaceBarIcon(f, i)
+		if f.layout ~= layout or f.slot ~= i then
+			PlaceBarIcon(f, i)
+			f.layout, f.slot = layout, i
+		end
 		f.tex:SetTexture(icon)
 		f.tex:SetDesaturated(not left)
 		f.tex:SetAlpha(key == "HORN" and not left and 0.5 or 1) -- its icon is already gray, so fade it instead
@@ -1273,7 +1281,7 @@ driver:SetScript("OnEvent", function(_, event, unit)
 		-- entering combat: Enable/Disable and SetAttribute are refused once the
 		-- lockdown is up, and this event fires before that, so this is the last
 		-- chance to make the button inert until combat ends
-		if not ArmCombat() then -- nothing castable without a target choice
+		if btn and not ArmCombat() then -- nothing castable without a target choice
 			btn:Disable()
 			btn:SetAttribute("type", nil) -- a stale pre-combat spell must not go off
 		end
@@ -1318,6 +1326,7 @@ end
 
 SLASH_RALLY1 = "/rally"
 SlashCmdList["RALLY"] = function(msg)
+	msg = strlower(strtrim(msg or ""))
 	if msg == "reset" then
 		wipe(assigns)
 		-- an empty table is an explicit clear (SyncAll sends it as all "-");

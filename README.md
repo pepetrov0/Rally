@@ -13,7 +13,7 @@ A lightweight buff-assignment and one-button buffing addon for World of Warcraft
 
 - 🎯 **One-button buffing** — an always-visible button that shows the missing-buff count and casts the next buff; dead, offline and out-of-range raiders are ignored until they qualify again
 - ⚰️ **Resurrections first** — paladins, priests, shamans and druids get "N dead!" on the button before any buff; click to resurrect a random dead raider in range, and if the cast fails the next one is tried
-- 📊 **Buff bar** — a column of buff icons for the buffs you should have: grayed out while missing, in colour with the time left while active; only buffs whose caster class is in the group are shown; Well Fed, flask or elixir, and the pet's Well Fed (hunters and warlocks) follow after them. Shift-drag to move (snaps to the screen centre lines); right-click for horizontal layout and text side
+- 📊 **Buff bar** — a column of buff icons for the buffs you should have: grayed out while missing, in colour with the time left while active; only buffs whose caster class is in the group are shown; Well Fed, flask or elixir, and the pet's Well Fed (hunters and warlocks) lead the bar. Hover an icon for the buff tooltip. Shift-drag to move (snaps to the screen centre lines); right-click for horizontal layout, text side, icon size and text size
 - 🛡️ **Only paladins and warriors need planning** — blessings per target class for paladins, raid-wide shout rows for warriors; druids cast Wild + Thorns on everyone; every other buffer class casts its standard buff automatically
 - 🔄 **Live raid sync** — assignments broadcast over addon messages; only the raid leader or an assistant can edit them
 - 🤝 **PallyPower bridge** — shares the paladin grid with PallyPower users, in both directions
@@ -51,7 +51,9 @@ An always-visible secure button that states the buff state right on it:
 - **Right-click** — toggle the assignment window
 - **Shift-drag** — move the button (position is remembered)
 
-It reads "All good." when everything is covered; otherwise it shows a "N missing!" count, and its icon says which buff it would cast next — while buffs are missing, the button slowly flashes white. The list above the button shows who still needs what until then. During combat the button is disabled — buffing in combat is off; the count and list still update, and casting picks up once combat ends.
+It reads "All good." when everything is covered; otherwise it shows a "N missing!" count, and its icon says which buff it would cast next — while buffs are missing, the button slowly flashes white. The list above the button shows who still needs what until then.
+
+**In combat** the secure button can't change its target, so it is armed just before the pull with what needs no target choice: shouts and Horn of Winter, plus the group buffs (priest prayers, Gift of the Wild, Arcane Brilliance) when you have the reagents for five casts each. Paladins get one representative per assigned class and each click steps to the next. Whatever can't be armed waits until combat ends, and the list only shows what the armed button can cast. Thorns is only cast in groups of 10 or fewer.
 
 ### The assignment window
 
@@ -75,7 +77,7 @@ Paladins get blessing assignments and warriors raid-wide shout assignments throu
 | Warrior | Assigned shout (Battle Shout / Commanding Shout); alternating shouts by raid position until assigned |
 | Death Knight | Horn of Winter |
 
-Assignments are stored in `RallyDB` (account-wide) and shared raid-wide over addon communication. Officers broadcast their edits; everyone receives them.
+Assignments, the button and bar positions and the bar options are stored in `RallyDB` (account-wide) and shared raid-wide over addon communication. Officers broadcast their edits; everyone receives them.
 
 ## PallyPower integration
 
