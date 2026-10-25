@@ -1105,8 +1105,8 @@ local function BuildBar()
 	bar:SetPoint("CENTER", UIParent, "CENTER", 450, 0)
 	local bg = CreateFrame("Frame", nil, bar)
 	bg:SetFrameLevel(bar:GetFrameLevel())
-	bg:SetPoint("TOPLEFT", -6, 6)
-	bg:SetPoint("BOTTOMRIGHT", 6, -6)
+	bg:SetPoint("TOPLEFT", -3, 3)
+	bg:SetPoint("BOTTOMRIGHT", 3, -3)
 	bg:SetBackdrop({
 		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
 		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
