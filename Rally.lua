@@ -580,7 +580,7 @@ local function Scan()
 	local units, byName = Units(), {}
 	local _, myClass = UnitClass("player")
 	local rezKey = REZ[myClass]
-	if rezKey and Known(BUFFS[rezKey].spell) then
+	if rezKey and not InCombatLockdown() and Known(BUFFS[rezKey].spell) then
 		local dead, rez = ScanDead(units, rezKey)
 		if #dead > 0 then return dead, rez, true end
 	end
@@ -694,6 +694,7 @@ local function HasReagents(spell, buffs) return (GetSpellCount(spell) or 0) >= R
 
 local function ArmPaladin(row)
 	local picks, units = {}, Units()
+	btn.armedClasses = {}
 	for _, class in ipairs(CLASSES) do
 		local opt = row[class] and ASSIGN[row[class]]
 		local buff = opt and BUFFS[opt.buffs[1]]
@@ -704,7 +705,7 @@ local function ArmPaladin(row)
 				local _, uclass = UnitClass(u)
 				if uclass == class and UnitIsConnected(u) and UnitIsVisible(u) and not UnitIsDeadOrGhost(u)
 					and InRange(u, range) then
-					picks[#picks + 1] = { spell = spell, unit = u }
+					picks[#picks + 1] = { spell = spell, unit = u, class = class }
 					break
 				end
 			end
@@ -716,6 +717,7 @@ local function ArmPaladin(row)
 			n = n + 1
 			btn:SetAttribute("rally-spell" .. n, pick.spell)
 			btn:SetAttribute("rally-unit" .. n, pick.unit)
+			btn.armedClasses[pick.class] = true
 		end
 	end
 	if n == 0 then return false end
@@ -727,13 +729,13 @@ local function ArmPaladin(row)
 end
 
 local function ArmCombat()
-	btn.armed = nil
+	btn.armed, btn.armedKeys, btn.armedClasses = nil, {}, nil
 	btn:SetAttribute("rally-n", 0)
 	local row = MyRow()
 	if not row or UnitIsDeadOrGhost("player") then return false end
 	local _, myClass = UnitClass("player")
 	if myClass == "PALADIN" then return ArmPaladin(row) end
-	local spells, seen, reagent, needs = {}, {}, 0, {}
+	local spells, seen, reagent, needs, keyOf = {}, {}, 0, {}, {}
 	for _, class in ipairs(CLASSES) do
 		local opt = row[class] and ASSIGN[row[class]]
 		for _, bkey in ipairs(opt and opt.buffs or {}) do
@@ -745,6 +747,7 @@ local function ArmCombat()
 				local spell = PickSpell(buff)
 				if spell and (not buff.lesser or spell == buff.spell) then
 					spells[#spells + 1] = spell
+					keyOf[spell] = bkey
 					if buff.lesser then reagent = reagent + 1; needs[spell] = true end
 				end
 			end
@@ -754,6 +757,7 @@ local function ArmCombat()
 		if needs[spells[i]] and not HasReagents(spells[i], reagent) then table.remove(spells, i) end
 	end
 	if #spells == 0 then return false end
+	for _, spell in ipairs(spells) do btn.armedKeys[keyOf[spell]] = true end
 	if #spells == 1 then
 		btn:SetAttribute("type", "spell")
 		btn:SetAttribute("spell", spells[1])
@@ -770,7 +774,20 @@ local function UpdateButton()
 	if not btn then return end
 	local list, cast, dead = Scan()
 	local inCombat = InCombatLockdown()
-	UpdateList(inCombat and {} or list) -- nothing is listed in combat: the button is armed blind
+	if inCombat then -- only what the armed button can cast is listed; the rest is hidden
+		local shown = {}
+		for _, e in ipairs(list) do
+			local buffs = {}
+			for _, key in ipairs(e.buffs) do
+				if (btn.armedKeys and btn.armedKeys[key]) or (btn.armedClasses and btn.armedClasses[e.class]) then
+					buffs[#buffs + 1] = key
+				end
+			end
+			if #buffs > 0 then shown[#shown + 1] = { name = e.name, class = e.class, buffs = buffs } end
+		end
+		list = shown
+	end
+	UpdateList(list)
 
 	local _, myClass = UnitClass("player")
 	if not debugOn and not CASTERS[myClass] and not REZ[myClass] then -- this class casts nothing: no button
