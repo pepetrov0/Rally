@@ -546,7 +546,7 @@ local seenMissing = {}
 -- distance test and the button keeps aiming at them. When a cast fails for any
 -- reason, that raider is passed over for a while so the next one is tried;
 -- they stay on the missing list, the button just stops aiming at them.
-local SKIP_FOR = 15
+local SKIP_FOR = 5
 local skipUntil, rezSkipUntil, lastTarget, lastRez = {}, {}, nil, false
 local rezPick -- name of the dead raider the button is aiming at, kept until it fails
 
