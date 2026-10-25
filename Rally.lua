@@ -683,25 +683,75 @@ end
 -- yourself) and the priest prayers, Gift of the Wild and Arcane Brilliance, which hit the group
 -- around the caster.
 -- Several buffs go in a castsequence that walks through them click by click.
+-- Paladins: a greater blessing lands on the whole class, so one representative
+-- per assigned class is enough. Going into combat everyone is still buffed, so
+-- nothing is filtered on missing: the button refreshes them as they run out. Each click (see the wrapped OnClick in
+-- BuildButton) moves on to the next pair, so the blessings go out in order.
+-- Reagents must last 5 casts per buff about to be armed (GetSpellCount counts
+-- casts left, and the buffs of a class share their reagent).
+local REAGENT_CASTS = 5
+local function HasReagents(spell, buffs) return (GetSpellCount(spell) or 0) >= REAGENT_CASTS * buffs end
+
+local function ArmPaladin(row)
+	local picks, units = {}, Units()
+	for _, class in ipairs(CLASSES) do
+		local opt = row[class] and ASSIGN[row[class]]
+		local buff = opt and BUFFS[opt.buffs[1]]
+		local spell = buff and PickSpell(buff)
+		if spell and spell == buff.spell then
+			local range = SpellRange(spell)
+			for _, u in ipairs(units) do
+				local _, uclass = UnitClass(u)
+				if uclass == class and UnitIsConnected(u) and UnitIsVisible(u) and not UnitIsDeadOrGhost(u)
+					and InRange(u, range) then
+					picks[#picks + 1] = { spell = spell, unit = u }
+					break
+				end
+			end
+		end
+	end
+	local n = 0
+	for _, pick in ipairs(picks) do
+		if HasReagents(pick.spell, #picks) then
+			n = n + 1
+			btn:SetAttribute("rally-spell" .. n, pick.spell)
+			btn:SetAttribute("rally-unit" .. n, pick.unit)
+		end
+	end
+	if n == 0 then return false end
+	btn:SetAttribute("type", "spell")
+	btn:SetAttribute("rally-i", 0)
+	btn:SetAttribute("rally-n", n)
+	btn.armed = true
+	return true
+end
+
 local function ArmCombat()
 	btn.armed = nil
+	btn:SetAttribute("rally-n", 0)
 	local row = MyRow()
 	if not row or UnitIsDeadOrGhost("player") then return false end
-	local spells, seen = {}, {}
+	local _, myClass = UnitClass("player")
+	if myClass == "PALADIN" then return ArmPaladin(row) end
+	local spells, seen, reagent, needs = {}, {}, 0, {}
 	for _, class in ipairs(CLASSES) do
 		local opt = row[class] and ASSIGN[row[class]]
 		for _, bkey in ipairs(opt and opt.buffs or {}) do
 			local buff = BUFFS[bkey]
-			if not seen[bkey] and buff.self and not HasBuff("player", buff) then
+			if not seen[bkey] and buff.self then
 				seen[bkey] = true
-				-- a reagent buff needs the group version known and enough reagents
-				-- (GetSpellCount counts casts left); otherwise it waits for out of combat
+				-- a reagent buff needs the group version known; the reagents are
+				-- checked below, otherwise it waits for out of combat
 				local spell = PickSpell(buff)
-				if spell and (not buff.lesser or (spell == buff.spell and (GetSpellCount(spell) or 0) >= 5)) then
+				if spell and (not buff.lesser or spell == buff.spell) then
 					spells[#spells + 1] = spell
+					if buff.lesser then reagent = reagent + 1; needs[spell] = true end
 				end
 			end
 		end
+	end
+	for i = #spells, 1, -1 do
+		if needs[spells[i]] and not HasReagents(spells[i], reagent) then table.remove(spells, i) end
 	end
 	if #spells == 0 then return false end
 	if #spells == 1 then
@@ -712,15 +762,15 @@ local function ArmCombat()
 		btn:SetAttribute("type", "macro")
 		btn:SetAttribute("macrotext", "/castsequence [@player] reset=10 " .. table.concat(spells, ", "))
 	end
-	btn.armed = "In combat: " .. #spells .. " to cast"
+	btn.armed = true
 	return true
 end
 
 local function UpdateButton()
 	if not btn then return end
 	local list, cast, dead = Scan()
-	UpdateList(list)
 	local inCombat = InCombatLockdown()
+	UpdateList(inCombat and {} or list) -- nothing is listed in combat: the button is armed blind
 
 	local _, myClass = UnitClass("player")
 	if not debugOn and not CASTERS[myClass] and not REZ[myClass] then -- this class casts nothing: no button
@@ -735,7 +785,7 @@ local function UpdateButton()
 		btn:Enable()
 	end
 	if inCombat then -- the button is inert in combat, so say so
-		btn:SetText(btn.armed or "In combat!")
+		btn:SetText("In combat!")
 		btn.iconFrame:Hide()
 		btn.flash:Hide()
 		flashStart = nil -- combat pauses/resets the 60s
@@ -825,6 +875,17 @@ local function BuildButton()
 		self:SetAlpha((0.5 + 0.5 * math.sin(GetTime() * math.pi)) * 0.45)
 	end)
 	btn.flash:Hide()
+	-- in combat an armed paladin button steps through its representatives: this
+	-- runs in the secure environment before each click casts
+	local header = CreateFrame("Frame", nil, UIParent, "SecureHandlerBaseTemplate")
+	SecureHandlerWrapScript(btn, "OnClick", header, [[
+		local n = self:GetAttribute("rally-n") or 0
+		if n == 0 then return end
+		local i = (self:GetAttribute("rally-i") or 0) % n + 1
+		self:SetAttribute("rally-i", i)
+		self:SetAttribute("spell", self:GetAttribute("rally-spell" .. i))
+		self:SetAttribute("unit", self:GetAttribute("rally-unit" .. i))
+	]])
 	Skin("castbutton", btn)
 	btn:SetMovable(true)
 	btn:RegisterForDrag("LeftButton")
@@ -909,6 +970,7 @@ driver:SetScript("OnEvent", function(_, event, unit)
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		if btn then -- re-arm: UpdateButton sets a fresh spell/unit out of combat
 			btn.armed = nil
+			btn:SetAttribute("rally-n", 0) -- stop the click wrapper rotating targets
 			btn:SetAttribute("type", "spell")
 			btn:SetAttribute("macrotext", nil)
 			btn:Enable()
