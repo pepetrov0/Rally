@@ -31,12 +31,12 @@ local BUFFS = {
 	MIGHT   = { label = "Might",  spell = "Greater Blessing of Might",     lesser = "Blessing of Might",     auras = { "Blessing of Might", "Greater Blessing of Might" } },
 	WISDOM  = { label = "Wisdom", spell = "Greater Blessing of Wisdom",    lesser = "Blessing of Wisdom",    auras = { "Blessing of Wisdom", "Greater Blessing of Wisdom" } },
 	SANC    = { label = "Sanct",  spell = "Greater Blessing of Sanctuary", lesser = "Blessing of Sanctuary", auras = { "Blessing of Sanctuary", "Greater Blessing of Sanctuary" } },
-	FORT    = { label = "Fort",   spell = "Prayer of Fortitude",           lesser = "Power Word: Fortitude", auras = { "Power Word: Fortitude", "Prayer of Fortitude" } },
-	SPIRIT  = { label = "Spirit", spell = "Prayer of Spirit",              lesser = "Divine Spirit",         auras = { "Divine Spirit", "Prayer of Spirit" } },
-	SHADOW  = { label = "ShadP",  spell = "Prayer of Shadow Protection",   lesser = "Shadow Protection",     auras = { "Shadow Protection", "Prayer of Shadow Protection" } },
-	MARK    = { label = "Wild",   spell = "Gift of the Wild",              lesser = "Mark of the Wild",      auras = { "Mark of the Wild", "Gift of the Wild" } },
+	FORT    = { label = "Fort",   spell = "Prayer of Fortitude",           lesser = "Power Word: Fortitude", auras = { "Power Word: Fortitude", "Prayer of Fortitude" }, self = true, reach = 30 },
+	SPIRIT  = { label = "Spirit", spell = "Prayer of Spirit",              lesser = "Divine Spirit",         auras = { "Divine Spirit", "Prayer of Spirit" }, self = true, reach = 30 },
+	SHADOW  = { label = "ShadP",  spell = "Prayer of Shadow Protection",   lesser = "Shadow Protection",     auras = { "Shadow Protection", "Prayer of Shadow Protection" }, self = true, reach = 30 },
+	MARK    = { label = "Wild",   spell = "Gift of the Wild",              lesser = "Mark of the Wild",      auras = { "Mark of the Wild", "Gift of the Wild" }, self = true, reach = 30 },
 	THORNS  = { label = "Thorns", spell = "Thorns",                        auras = { "Thorns" } },
-	AI      = { label = "Int",    spell = "Arcane Brilliance",             lesser = "Arcane Intellect",      auras = { "Arcane Intellect", "Arcane Brilliance" } },
+	AI      = { label = "Int",    spell = "Arcane Brilliance",             lesser = "Arcane Intellect",      auras = { "Arcane Intellect", "Arcane Brilliance" }, self = true, reach = 30 },
 	BSHOUT  = { label = "BShout", spell = "Battle Shout",                  auras = { "Battle Shout" }, self = true, reach = 100 },
 	CSHOUT  = { label = "CShout", spell = "Commanding Shout",              auras = { "Commanding Shout" }, self = true, reach = 30 },
 	HORN    = { label = "Horn",   spell = "Horn of Winter",                auras = { "Horn of Winter" }, self = true, reach = 30 },
@@ -591,11 +591,13 @@ local function Scan()
 		if opt then
 			for _, bkey in ipairs(opt.buffs) do
 				local buff = BUFFS[bkey]
-				local spell = PickSpell(buff)
+				local spell, lesser = PickSpell(buff)
+				-- the lesser version of a self buff is single-target
+				local onSelf = buff.self and not lesser
 				if spell then
 					-- a self buff is cast on the player but still lands on
 					-- everyone around them, so everyone is checked for it
-					local range = buff.self and buff.reach or SpellRange(spell)
+					local range = onSelf and buff.reach or SpellRange(spell)
 					for _, u in ipairs(units) do
 						local _, uclass = UnitClass(u)
 						if uclass == class and UnitIsConnected(u) and UnitIsVisible(u) and not UnitIsDeadOrGhost(u)
@@ -605,8 +607,8 @@ local function Scan()
 							local entry = byName[name]
 							if not entry then
 								entry = { name = name, class = class, buffs = {},
-									castIt = { key = bkey, spell = spell, unit = buff.self and "player" or u,
-											target = not buff.self and name or nil } }
+									castIt = { key = bkey, spell = spell, unit = onSelf and "player" or u,
+											target = not onSelf and name or nil } }
 								byName[name] = entry
 								list[#list + 1] = entry
 							end
@@ -676,6 +678,44 @@ local function UpdateList(list)
 	SetShown(listFrame, n > 0)
 end
 
+-- Secure attributes can't change in combat, so the button is armed with what
+-- needs no target choice just before combat starts: shouts and horn (cast on
+-- yourself) and the priest prayers, Gift of the Wild and Arcane Brilliance, which hit the group
+-- around the caster.
+-- Several buffs go in a castsequence that walks through them click by click.
+local function ArmCombat()
+	btn.armed = nil
+	local row = MyRow()
+	if not row or UnitIsDeadOrGhost("player") then return false end
+	local spells, seen = {}, {}
+	for _, class in ipairs(CLASSES) do
+		local opt = row[class] and ASSIGN[row[class]]
+		for _, bkey in ipairs(opt and opt.buffs or {}) do
+			local buff = BUFFS[bkey]
+			if not seen[bkey] and buff.self and not HasBuff("player", buff) then
+				seen[bkey] = true
+				-- a reagent buff needs the group version known and enough reagents
+				-- (GetSpellCount counts casts left); otherwise it waits for out of combat
+				local spell = PickSpell(buff)
+				if spell and (not buff.lesser or (spell == buff.spell and (GetSpellCount(spell) or 0) >= 5)) then
+					spells[#spells + 1] = spell
+				end
+			end
+		end
+	end
+	if #spells == 0 then return false end
+	if #spells == 1 then
+		btn:SetAttribute("type", "spell")
+		btn:SetAttribute("spell", spells[1])
+		btn:SetAttribute("unit", "player")
+	else
+		btn:SetAttribute("type", "macro")
+		btn:SetAttribute("macrotext", "/castsequence [@player] reset=10 " .. table.concat(spells, ", "))
+	end
+	btn.armed = "In combat: " .. #spells .. " to cast"
+	return true
+end
+
 local function UpdateButton()
 	if not btn then return end
 	local list, cast, dead = Scan()
@@ -695,7 +735,7 @@ local function UpdateButton()
 		btn:Enable()
 	end
 	if inCombat then -- the button is inert in combat, so say so
-		btn:SetText("In combat!")
+		btn:SetText(btn.armed or "In combat!")
 		btn.iconFrame:Hide()
 		btn.flash:Hide()
 		flashStart = nil -- combat pauses/resets the 60s
@@ -861,12 +901,16 @@ driver:SetScript("OnEvent", function(_, event, unit)
 		-- entering combat: Enable/Disable and SetAttribute are refused once the
 		-- lockdown is up, and this event fires before that, so this is the last
 		-- chance to make the button inert until combat ends
-		btn:Disable()
-		btn:SetAttribute("type", nil) -- a stale pre-combat spell must not go off
+		if not ArmCombat() then -- nothing castable without a target choice
+			btn:Disable()
+			btn:SetAttribute("type", nil) -- a stale pre-combat spell must not go off
+		end
 		UpdateButton()
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		if btn then -- re-arm: UpdateButton sets a fresh spell/unit out of combat
+			btn.armed = nil
 			btn:SetAttribute("type", "spell")
+			btn:SetAttribute("macrotext", nil)
 			btn:Enable()
 		end
 		UpdateButton()
