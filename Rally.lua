@@ -1102,10 +1102,18 @@ local function BuildBar()
 	bar = CreateFrame("Frame", "RallyBar", UIParent)
 	Size(bar, IconSize(), IconSize())
 	bar:SetPoint("CENTER", UIParent, "CENTER", 450, 0)
-	local bg = bar:CreateTexture(nil, "BACKGROUND")
-	bg:SetTexture(0, 0, 0, 0.5)
-	bg:SetPoint("TOPLEFT", -3, 3)
-	bg:SetPoint("BOTTOMRIGHT", 3, -3)
+	local bg = CreateFrame("Frame", nil, bar)
+	bg:SetFrameLevel(bar:GetFrameLevel())
+	bg:SetPoint("TOPLEFT", -6, 6)
+	bg:SetPoint("BOTTOMRIGHT", 6, -6)
+	bg:SetBackdrop({
+		bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+		edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+		tile = true, tileSize = 16, edgeSize = 12,
+		insets = { left = 3, right = 3, top = 3, bottom = 3 },
+	})
+	bg:SetBackdropColor(0, 0, 0, 0.8)
+	Skin("list", bg)
 	bar:SetMovable(true)
 	bar:EnableMouse(true)
 	bar:RegisterForDrag("LeftButton")
