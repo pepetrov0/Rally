@@ -464,13 +464,23 @@ end
 ---------------------------------------------------------------------------
 local btn, flashStart
 
+local function FormatLeft(t)
+	if t >= 3600 then return math.floor(t / 3600 + 0.5) .. "h" end
+	if t >= 60 then return math.floor(t / 60 + 0.5) .. "m" end
+	return math.floor(t) .. "s"
+end
+
+-- second and third results: seconds left and total duration (nil when absent or untimed)
 local function HasBuff(unit, buff)
 	for i = 1, 40 do
-		local name, _, _, _, _, _, expires = UnitBuff(unit, i)
+		local name, _, _, _, _, duration, expires = UnitBuff(unit, i)
 		if not name then return false end
 		for _, a in ipairs(buff.auras) do
 			if a == name then
-				if expires and expires > 0 and expires - GetTime() < REBUFF_BELOW then return false end
+				if expires and expires > 0 then
+					local left = expires - GetTime()
+					return left >= REBUFF_BELOW, left, duration
+				end
 				return true
 			end
 		end
@@ -589,7 +599,14 @@ end
 local THORNS_MAX = 10 -- Thorns is only worth casting in groups this small
 local function SkipBuff(bkey, size) return bkey == "THORNS" and size > THORNS_MAX end
 
+local lowestLeft, lowestDur -- least time left on any of my buffs among the raiders scanned, and that buff's full duration
+
+local people = {} -- scanned raiders for the button tooltip: name, class, least time left on my buffs, missing
+
 local function Scan()
+	lowestLeft, lowestDur = nil, nil
+	people = {}
+	local seenPeople = {}
 	if debugOn then return FakeScan() end
 	local list, cast = {}, nil
 	if UnitIsDeadOrGhost("player") then return list end
@@ -602,6 +619,7 @@ local function Scan()
 	end
 	local row = MyRow()
 	if not row then return list end
+	local refresh -- with nobody missing: the buff with the least time left, to be recast
 	local byClass -- units grouped by class, built on first use and shared by all buffs
 	for _, class in ipairs(CLASSES) do
 		local opt = row[class] and ASSIGN[row[class]]
@@ -629,9 +647,35 @@ local function Scan()
 					-- everyone around them, so everyone is checked for it
 					local range = onSelf and buff.reach or SpellRange(spell)
 					for _, u in ipairs(members) do
-						if UnitIsConnected(u) and UnitIsVisible(u) and not UnitIsDeadOrGhost(u)
-							and not HasBuff(u, buff)
-							and InRange(u, range) then
+						local pname = UnitName(u)
+						local p = seenPeople[pname]
+						if not p then
+							p = { name = pname, class = class }
+							seenPeople[pname] = p
+							people[#people + 1] = p
+						end
+						local usable = false
+						if not UnitIsConnected(u) then p.off = true
+						elseif UnitIsDeadOrGhost(u) then p.dead = true
+						elseif UnitIsVisible(u) and InRange(u, range) then usable = true
+						else p.oor = true end
+						if usable then
+							local has, left, dur = HasBuff(u, buff)
+							if not has and not p.missing then p.missing, p.key = true, bkey end
+							if left and (not p.left or left < p.left) then
+								p.left = left
+								if not p.missing then p.key = bkey end
+							end
+							p.key = p.key or bkey
+							if left and (not lowestLeft or left < lowestLeft) then lowestLeft, lowestDur = left, dur end
+							if has and left and (not refresh or left < refresh.left) then
+								local target = not onSelf and UnitName(u) or nil
+								if not target or (skipUntil[target] or 0) < GetTime() then
+									refresh = { left = left, castIt = { key = bkey, spell = spell,
+										unit = onSelf and "player" or u, target = target } }
+								end
+							end
+							if not has then
 							local name = UnitName(u)
 							local entry = byName[name]
 							if not entry then
@@ -642,6 +686,7 @@ local function Scan()
 								list[#list + 1] = entry
 							end
 							entry.buffs[#entry.buffs + 1] = bkey
+							end
 						end
 					end
 				end
@@ -660,6 +705,7 @@ local function Scan()
 		end
 		seenMissing[e.name] = true
 	end
+	if not cast and #list == 0 and refresh then cast = refresh.castIt end
 	return confirmed, cast
 end
 
@@ -677,6 +723,8 @@ local function GetListLine(i)
 	line.name:SetWidth(BTN_W - 16 - 21)
 	line.name:SetJustifyH("LEFT")
 	-- one missing buff at a time; the next appears when it is applied
+	line.time = line:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	line.time:SetPoint("RIGHT", 0, 0)
 	line.icon = line:CreateTexture(nil, "ARTWORK")
 	Size(line.icon, 16, 16)
 	line.icon:SetPoint("LEFT", 0, 0)
@@ -693,6 +741,8 @@ local function UpdateList(list)
 		line.name:SetText(entry.name)
 		line.name:SetTextColor(color.r, color.g, color.b)
 		line.icon:SetTexture(BuffIcon(entry.buffs[1]))
+		line.icon:Show()
+		line.time:SetText("")
 		line:Show()
 	end
 	for i = n + 1, #listLines do listLines[i]:Hide() end
@@ -791,9 +841,63 @@ local function ArmCombat()
 	return true
 end
 
+local lastList = {}
+
+-- hovering the button turns the list into everyone scanned, a timer or status on the right:
+-- missing first, then the least time left; buffs without a timer, dead, offline and out of range last
+local function ShowPeople()
+	table.sort(people, function(a, b)
+		local function key(x) return x.missing and -1 or x.left or (x.off and 4e12 or x.dead and 3e12 or x.oor and 2e12 or 1e12) end
+		local ka, kb = key(a), key(b)
+		if ka ~= kb then return ka < kb end
+		return a.name < b.name
+	end)
+	local n = math.min(#people, 25)
+	for i = 1, n do
+		local line, p = GetListLine(i), people[i]
+		local c = RAID_CLASS_COLORS[p.class] or { r = 1, g = 1, b = 1 }
+		local text, tr, tg, tb = "", 0.6, 0.6, 0.6
+		if p.missing then text, tr, tg, tb = "missing", 1, 0.15, 0.15
+		elseif p.left then text, tr, tg, tb = FormatLeft(p.left), 0.1, 1, 0.1
+		elseif p.off then text = "OFF"
+		elseif p.dead then text = "DEAD"
+		elseif p.oor then text = "OOR" end
+		line.icon:SetTexture(BuffIcon(p.key or "KINGS"))
+		SetShown(line.icon, p.key ~= nil)
+		line.name:SetText(p.name)
+		line.name:SetTextColor(c.r, c.g, c.b)
+		line.time:SetText(text)
+		line.time:SetTextColor(tr, tg, tb)
+		line:Show()
+	end
+	for i = n + 1, #listLines do listLines[i]:Hide() end
+	listFrame:SetHeight(16 + n * LINE_H)
+	SetShown(listFrame, n > 0)
+end
+
+local function RenderList()
+	if btn.hovered and #people > 0 then ShowPeople() else UpdateList(lastList) end
+end
+
+local function ShowButtonTip(self)
+	GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+	GameTooltip:SetText("Rally")
+	GameTooltip:AddLine("Left-click: cast next missing buff", 1, 1, 1)
+	GameTooltip:AddLine("Right-click: assignments", 1, 1, 1)
+	GameTooltip:AddLine("Shift-drag: move", 1, 1, 1)
+	GameTooltip:Show()
+end
+
 local function UpdateButton()
 	if not btn then return end
 	local list, cast, dead = Scan()
+	if not lowestLeft then
+		btn.left:SetText("")
+	else
+		btn.left:SetText(FormatLeft(lowestLeft))
+		if lowestDur and lowestDur > 0 and lowestLeft < lowestDur * 0.1 then btn.left:SetTextColor(1, 0.15, 0.15)
+		else btn.left:SetTextColor(0.1, 1, 0.1) end
+	end
 	local inCombat = InCombatLockdown()
 	if inCombat then -- only what the armed button can cast is listed; the rest is hidden
 		local shown = {}
@@ -808,7 +912,8 @@ local function UpdateButton()
 		end
 		list = shown
 	end
-	UpdateList(list)
+	lastList = list
+	RenderList()
 
 	if not debugOn and not CASTERS[MY_CLASS] and not REZ[MY_CLASS] then -- this class casts nothing: no button
 		if not inCombat then btn:Hide() end
@@ -828,11 +933,19 @@ local function UpdateButton()
 	btn:Enable()
 	if #list == 0 then -- everybody is buffed
 		flashStart = nil -- fresh 60s the next time buffs go missing
-		btn:SetAttribute("spell", nil)
-		btn:SetAttribute("unit", nil)
 		btn:SetText("All good.")
-		btn.iconFrame:Hide()
 		btn.flash:Hide()
+		if cast then -- nothing missing: a click refreshes the buff that runs out first
+			btn:SetAttribute("spell", cast.spell)
+			btn:SetAttribute("unit", cast.unit)
+			btn.target, btn.rez = cast.target, nil
+			btn.icon:SetTexture(BuffIcon(cast.key))
+			btn.iconFrame:Show()
+		else
+			btn:SetAttribute("spell", nil)
+			btn:SetAttribute("unit", nil)
+			btn.iconFrame:Hide()
+		end
 		return
 	end
 	local missing = 0
@@ -887,8 +1000,11 @@ local function BuildButton()
 	local fs = btn:GetFontString()
 	fs:ClearAllPoints()
 	fs:SetPoint("LEFT", 44, 0) -- leaves a gap after the 32px-wide icon
-	fs:SetPoint("RIGHT", -6, 0)
+	fs:SetPoint("RIGHT", -44, 0)
 	fs:SetJustifyH("LEFT")
+	-- lowest time left on my buffs, rightmost
+	btn.left = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	btn.left:SetPoint("RIGHT", -8, 0)
 
 	-- white flash while buffs are missing (3.3.5 has no animation API)
 	btn.flash = CreateFrame("Frame", nil, btn)
@@ -932,15 +1048,8 @@ local function BuildButton()
 			if frame:IsShown() then frame:Hide() else frame:Show() end
 		end
 	end)
-	btn:SetScript("OnEnter", function(self)
-		GameTooltip:SetOwner(self, "ANCHOR_TOP")
-		GameTooltip:SetText("Rally")
-		GameTooltip:AddLine("Left-click: cast next missing buff", 1, 1, 1)
-		GameTooltip:AddLine("Right-click: assignments", 1, 1, 1)
-		GameTooltip:AddLine("Shift-drag: move", 1, 1, 1)
-		GameTooltip:Show()
-	end)
-	btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	btn:SetScript("OnEnter", function(self) self.hovered = true; ShowButtonTip(self); RenderList() end)
+	btn:SetScript("OnLeave", function(self) self.hovered = nil; GameTooltip:Hide(); RenderList() end)
 	if RallyDB.pos then
 		btn:ClearAllPoints()
 		btn:SetPoint(RallyDB.pos[1], UIParent, RallyDB.pos[2], RallyDB.pos[3], RallyDB.pos[4])
@@ -1011,12 +1120,6 @@ local function ConsumableInfo(key)
 		end
 	end
 	return nil, c.icon or (c.spell and select(3, GetSpellInfo(c.spell))) or FALLBACK_ICON
-end
-
-local function FormatLeft(t)
-	if t >= 3600 then return math.floor(t / 3600 + 0.5) .. "h" end
-	if t >= 60 then return math.floor(t / 60 + 0.5) .. "m" end
-	return math.floor(t) .. "s"
 end
 
 -- buff keys worth showing: the casting class is in the group, and for the
