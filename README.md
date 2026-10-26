@@ -12,6 +12,8 @@ A lightweight buff-assignment and one-button buffing addon for World of Warcraft
 ## Features
 
 - 🎯 **One-button buffing** — an always-visible button that shows the missing-buff count and casts the next buff; dead, offline and out-of-range raiders are ignored until they qualify again
+- ⏳ **Timer and refresh** — the button shows the lowest time left on your buffs (green, red under 10% of the duration), also in combat; with nobody missing, every click recasts the buff that runs out first
+- 👥 **Raider list on hover** — hovering the button lists everyone scanned with a timer on the right, or `missing`, `DEAD`, `OFF`, `OOR`
 - ⚰️ **Resurrections first** — paladins, priests, shamans and druids get "N dead!" on the button before any buff; click to resurrect a random dead raider in range, and if the cast fails the next one is tried
 - 📊 **Buff bar** — a column of buff icons for the buffs you should have: grayed out while missing, in colour with the time left while active; only buffs whose caster class is in the group are shown; Well Fed, flask or elixir, and the pet's Well Fed (hunters and warlocks) lead the bar. Hover an icon for the buff tooltip. Shift-drag to move (snaps to the screen centre lines); right-click for horizontal layout, text side, icon size and text size
 - 🛡️ **Only paladins and warriors need planning** — blessings per target class for paladins, raid-wide shout rows for warriors; druids cast Wild + Thorns on everyone; every other buffer class casts its standard buff automatically
@@ -47,11 +49,12 @@ A lightweight buff-assignment and one-button buffing addon for World of Warcraft
 
 An always-visible secure button that states the buff state right on it:
 
-- **Left-click** — cast the next missing buff (greater version first, lesser fallback without reagents)
+- **Left-click** — cast the next missing buff (greater version first, lesser fallback without reagents); when nothing is missing, refresh the buff with the least time left, then the next lowest on each click
+- **Hover** — the list above the button shows every scanned raider with their icon and a timer on the right (`missing` first, then least time left), or `DEAD`, `OFF` or `OOR`
 - **Right-click** — toggle the assignment window
 - **Shift-drag** — move the button (position is remembered)
 
-It reads "All good." when everything is covered; otherwise it shows a "N missing!" count, and its icon says which buff it would cast next — while buffs are missing, the button slowly flashes white. The list above the button shows who still needs what until then.
+The lowest time left on your buffs is shown at the right edge of the button, green and turning red under 10% of that buff's duration. It reads "All good." when everything is covered; otherwise it shows a "N missing!" count, and its icon says which buff it would cast next — while buffs are missing, the button slowly flashes white. The list above the button shows who still needs what until then.
 
 **In combat** the secure button can't change its target, so it is armed just before the pull with what needs no target choice: shouts and Horn of Winter, plus the group buffs (priest prayers, Gift of the Wild, Arcane Brilliance) when you have the reagents for five casts each. Paladins get one representative per assigned class and each click steps to the next. Whatever can't be armed waits until combat ends, and the list only shows what the armed button can cast. Thorns is only cast in groups of 10 or fewer.
 
