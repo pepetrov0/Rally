@@ -15,7 +15,7 @@ A lightweight buff-assignment and one-button buffing addon for World of Warcraft
 - ⏳ **Timer and refresh** — the button shows the lowest time left on your buffs (green, red under 10% of the duration), also in combat; with nobody missing, every click recasts the buff that runs out first
 - 👥 **Raider list on hover** — hovering the button lists everyone scanned with a timer on the right, or `missing`, `DEAD`, `OFF`, `OOR`
 - ⚰️ **Resurrections first** — paladins, priests, shamans and druids get "N dead!" on the button before any buff; click to resurrect a random dead raider in range, and if the cast fails the next one is tried
-- 📊 **Buff bar** — a column of buff icons for the buffs you should have: grayed out while missing, in colour with the time left while active; only buffs whose caster class is in the group are shown; Well Fed, flask or elixir, and the pet's Well Fed (hunters and warlocks) lead the bar. Hover an icon for the buff tooltip. Shift-drag to move (snaps to the screen centre lines); right-click for horizontal layout, text side, icon size and text size
+- 📊 **Buff bar** — moved to its own addon, [Kings-n-Things](../KingsNThings), which follows Rally's assignments when both are loaded
 - 🛡️ **Only paladins and warriors need planning** — blessings per target class for paladins, raid-wide shout rows for warriors; druids cast Wild + Thorns on everyone; every other buffer class casts its standard buff automatically
 - 🔄 **Live raid sync** — assignments broadcast over addon messages; only the raid leader or an assistant can edit them
 - 🤝 **PallyPower bridge** — shares the paladin grid with PallyPower users, in both directions
@@ -38,7 +38,6 @@ A lightweight buff-assignment and one-button buffing addon for World of Warcraft
 | `/rally` | Toggle the assignment window |
 | `/rally auto` | Auto-assign blessings to every paladin and shouts to warriors (leader/assistant only) |
 | `/rally reset` | Clear all assignments |
-| `/rally buffbar on\|off` | Show or hide the buff bar |
 | `/rally log` | Log every sync addon message (RALLY and PallyPower, sent and received) to the chat window |
 | `/rally debug` | Preview the window and cast button with a fake raid |
 
@@ -80,7 +79,7 @@ Paladins get blessing assignments and warriors raid-wide shout assignments throu
 | Warrior | Assigned shout (Battle Shout / Commanding Shout); alternating shouts by raid position until assigned |
 | Death Knight | Horn of Winter |
 
-Assignments, the button and bar positions and the bar options are stored in `RallyDB` (account-wide) and shared raid-wide over addon communication. Officers broadcast their edits; everyone receives them.
+Assignments and the button position are stored in `RallyDB` (account-wide) and shared raid-wide over addon communication. Officers broadcast their edits; everyone receives them.
 
 ## PallyPower integration
 
