@@ -25,6 +25,14 @@ local assigns -- the assignment table in use: real RallyDB.assign, or fake in de
 function Rally.Assigns() return assigns end -- Sync.lua reads and writes the table in use
 
 ---------------------------------------------------------------------------
+-- Logging
+---------------------------------------------------------------------------
+local TAG = "|cff33ff99Rally|r"
+local ADDON_VERSION = GetAddOnMetadata("Rally", "Version") or "?"
+local function Log(msg) DEFAULT_CHAT_FRAME:AddMessage(TAG .. " " .. msg) end
+local function LogLoad(hint) Log("v" .. ADDON_VERSION .. " loaded." .. (hint and (" " .. hint) or "")) end
+
+---------------------------------------------------------------------------
 -- Data
 ---------------------------------------------------------------------------
 -- spell  = greater/group version (needs reagents)
@@ -246,7 +254,7 @@ local function Skin(kind, ...)
 	local ok, err = pcall(Rally.Skin, kind, ...)
 	if not ok then
 		skinFailed = true
-		print("|cff00ccffRally:|r skin error: " .. tostring(err))
+		Log("skin error: " .. tostring(err))
 	end
 end
 
@@ -378,7 +386,7 @@ end
 
 local function AutoAssign()
 	if not IsOfficer() and not debugOn then
-		print("|cff00ccffRally:|r only the leader or an assistant can auto-assign.")
+		Log("only the leader or an assistant can auto-assign.")
 		return
 	end
 	local paladins, warriors = 0, 0
@@ -1077,6 +1085,7 @@ driver:SetScript("OnEvent", function(_, event, unit)
 		BuildWindow()
 		BuildButton()
 		UpdateButton()
+		LogLoad("/rally to assign buffs.")
 	elseif event:find("^UNIT_SPELLCAST") then
 		if unit == "player" and lastTarget then
 			if event ~= "UNIT_SPELLCAST_SUCCEEDED" then
@@ -1118,10 +1127,10 @@ local function ToggleDebug()
 	if debugOn then
 		fakeRoster = MakeFakeRoster()
 		fakeDB = {}
-		print("|cff00ccffRally:|r debug raid active - real assignments are untouched.")
+		Log("debug raid active - real assignments are untouched.")
 	else
 		fakeRoster, fakeDB = nil, nil
-		print("|cff00ccffRally:|r debug raid off.")
+		Log("debug raid off.")
 	end
 	assigns = debugOn and fakeDB or RallyDB.assign
 	Rally_Refresh()
@@ -1146,11 +1155,11 @@ SlashCmdList["RALLY"] = function(msg)
 		end
 		Rally.SyncAll()
 		Rally_Refresh()
-		print("|cff00ccffRally:|r assignments cleared.")
+		Log("assignments cleared.")
 	elseif msg == "log" then
 		RallyDB = RallyDB or {}
 		RallyDB.ppDebug = not RallyDB.ppDebug
-		print("|cff00ccffRally:|r sync log " .. (RallyDB.ppDebug and "on" or "off"))
+		Log("sync log " .. (RallyDB.ppDebug and "on" or "off"))
 	elseif msg == "debug" then
 		ToggleDebug()
 	elseif msg == "auto" then
