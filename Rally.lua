@@ -327,6 +327,10 @@ local function GetRow(i)
 	row.name:SetPoint("LEFT", 0, 0)
 	row.name:SetWidth(NAME_W - 8)
 	row.name:SetJustifyH("LEFT")
+	-- shown instead of the class cells for players running neither addon
+	row.missing = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	row.missing:SetPoint("LEFT", NAME_W, 0)
+	row.missing:SetText("Missing Rally or Pally power.")
 	row.cells = {}
 	for c, class in ipairs(CLASSES) do
 		local b = CreateFrame("Button", nil, row)
@@ -356,6 +360,14 @@ local function GetRow(i)
 	return row
 end
 
+-- a player who has never sent a Rally or PallyPower message cannot receive
+-- assignments, so their row has nothing to show or edit
+local function HasAddon(name)
+	if debugOn then return true end -- the fake raid is always "synced"
+	local known = Rally.HasAddon
+	return not known or known(name) -- without Sync.lua, assume everyone can sync
+end
+
 function Rally_Refresh()
 	if not frame or not frame:IsShown() then return end
 	-- the window lists paladins and warriors; every other class casts its
@@ -371,12 +383,16 @@ function Rally_Refresh()
 		local color = RAID_CLASS_COLORS[r.class]
 		row.name:SetText(r.name)
 		row.name:SetTextColor(color.r, color.g, color.b)
-		local assigned, editable = assigns[r.name] or {}, CanEdit(r.name)
+		local assigned, editable, synced = assigns[r.name] or {}, CanEdit(r.name), HasAddon(r.name)
 		for c, class in ipairs(CLASSES) do
 			local cell, key = row.cells[c], assigned[class]
-			SetCellIcons(cell, key)
-			cell:SetAlpha(editable and 1 or 0.5)
+			SetShown(cell, synced)
+			if synced then
+				SetCellIcons(cell, key)
+				cell:SetAlpha(editable and 1 or 0.5)
+			end
 		end
+		SetShown(row.missing, not synced)
 		row:Show()
 	end
 	for i = #roster + 1, #rows do rows[i]:Hide() end

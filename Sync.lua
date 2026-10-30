@@ -1,6 +1,9 @@
 --[[ Rally sync (3.3.5a) - all of Rally's addon-message traffic in one file.
 
 Rally's own language (paladin AND warrior rows):
+  H;<name>                  "I run Rally", so the assignment window knows
+                            which rows can actually receive assignments
+  Q                         "who runs Rally?"; every Rally client answers H
   R;<caster>;<k1,...,k10>   one caster's assignment row; tokens are Rally's
                             assign keys (KINGS, BSHOUT, ...), "-" = none;
                             columns follow Rally.CLASSES. ";" is the delimiter
@@ -45,6 +48,10 @@ local _, MY_CLASS = UnitClass("player")
 local RALLY_PREFIX = "RALLY"
 local PP_PREFIX = "PLPWR"
 
+-- players we have heard an addon message from: they run Rally or PallyPower
+-- and can therefore receive assignments (we run Rally ourselves)
+local present = { [ME] = true }
+
 ---------------------------------------------------------------------------
 -- Shared helpers
 ---------------------------------------------------------------------------
@@ -61,12 +68,18 @@ local function ClassOf(name)
 	end
 end
 
+-- Rally.lua asks this to decide whether a row is real or "Missing Rally or
+-- Pally power."; without an addon message from a player there is no way to
+-- know they would receive what we assign.
+function Rally.HasAddon(name) return present[name] == true end
+
 ---------------------------------------------------------------------------
 -- One paced outgoing queue for both protocols (never trips the throttle)
 ---------------------------------------------------------------------------
 
 local out, acc = {}, 0
-local SendSelf, selfAt, syncAt, OnPP -- forward: PP announce / delayed Rally.SyncAll / PP message parser
+local SendSelf, RequestPP, RequestPresence, Hello -- forward: PP announce / presence probes / Rally announce
+local selfAt, syncAt, presenceAt, helloAt, OnPP -- forward: delayed announcements / PP message parser
 
 -- The driver's OnUpdate only runs while it is shown, i.e. while something is
 -- queued or scheduled; it hides itself once idle so it costs nothing per frame.
@@ -93,8 +106,10 @@ driver:SetScript("OnUpdate", function(self, elapsed)
 	end
 	local now = GetTime()
 	if selfAt and now >= selfAt then selfAt = nil; SendSelf() end
+	if presenceAt and now >= presenceAt then presenceAt = nil; RequestPP(); RequestPresence() end
 	if syncAt and now >= syncAt then syncAt = nil; Rally.SyncAll() end
-	if #out == 0 and not selfAt and not syncAt then self:Hide() end
+	if helloAt and now >= helloAt then helloAt = nil; Hello() end
+	if #out == 0 and not selfAt and not syncAt and not presenceAt and not helloAt then self:Hide() end
 end)
 driver:Hide()
 
@@ -105,6 +120,28 @@ driver:Hide()
 -- "|" is stripped by some 3.3.5 servers, so new rows use ";"; both parse
 local function SplitRow(msg)
 	return strsplit(msg:find("|", 1, true) and "|" or ";", msg)
+end
+
+-- announce that we run Rally; warriors have no PallyPower announcement, so
+-- this is the only way their row can be known to be live
+local lastHello = 0
+function Hello()
+	if Rally.DebugOn() then return end
+	local ch = Channel()
+	if not ch or GetTime() - lastHello < 3 then return end
+	lastHello = GetTime()
+	Send(RALLY_PREFIX, "H;" .. ME, ch)
+end
+
+-- ask every Rally client to announce itself (PallyPower users answer the
+-- PLPWR REQ that RequestPP sends instead)
+local lastReqRally = 0
+function RequestPresence()
+	if Rally.DebugOn() then return end
+	local ch = Channel()
+	if not ch or GetTime() - lastReqRally < 5 then return end
+	lastReqRally = GetTime()
+	Send(RALLY_PREFIX, "Q", ch)
 end
 
 -- broadcast one caster's row; Rally.lua calls this after every edit
@@ -125,6 +162,7 @@ end
 function Rally.SyncAll()
 	if Rally.DebugOn() then return end
 	if not Channel() then return end
+	Hello() -- a roster change is when everyone introduces themselves
 	if Rally.IsOfficer() then
 		for _, r in ipairs(Rally.Roster()) do
 			if Rally.GRID[r.class] then Rally.SendRow(r.name) end
@@ -134,10 +172,26 @@ function Rally.SyncAll()
 	end
 end
 
-local function OnRally(sender, msg)
+-- answer a Q / newcomer H after a random delay, so a whole raid replying to
+-- one joiner spreads out instead of all sending at once
+local function HelloSoon()
+	if not helloAt then helloAt = Schedule(math.random() * 2) end
+end
+
+local function OnRally(sender, msg, newcomer)
 	if sender == ME then return end
 	local cmd, caster, data = SplitRow(msg)
-	if cmd ~= "R" or not caster or not data then return end
+	if cmd == "Q" then -- someone joined and cannot see us yet
+		HelloSoon()
+		Rally_Refresh()
+		return
+	elseif cmd == "H" then -- presence; the event handler recorded it already
+		if newcomer then HelloSoon() end -- answer, so a newcomer can see us too
+		Rally_Refresh()
+		return
+	elseif cmd ~= "R" or not caster or not data then
+		return
+	end
 	if sender ~= caster and not Rally.SenderIsOfficer(sender) then return end
 	local row, i = {}, 0
 	for tok in string.gmatch(data, "[^,]+") do
@@ -184,7 +238,8 @@ local function IdToKey(id)
 end
 
 local lastReq = 0
-local function RequestPP()
+function RequestPP()
+	if Rally.DebugOn() then return end
 	local ch = Channel()
 	if not ch then return end
 	if GetTime() - lastReq < 5 then return end
@@ -370,10 +425,14 @@ events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:SetScript("OnEvent", function(_, event, a1, a2, a3, a4)
 	if event == "CHAT_MSG_ADDON" then
 		if Rally.DebugOn() or (a1 ~= RALLY_PREFIX and a1 ~= PP_PREFIX) then return end
+		if not a4 then return end -- no sender: not a player message
+		local newcomer = not present[a4] -- a first message from a player we didn't know
+		present[a4] = true -- whoever talks runs Rally or PallyPower
 		Dbg("<", a1, a4, a2) -- prefix, sender, message
-		if a1 == RALLY_PREFIX then OnRally(a4, a2) else OnPP(a4, a2) end
+		if a1 == RALLY_PREFIX then OnRally(a4, a2, newcomer) else OnPP(a4, a2) end
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		selfAt = Schedule(4) -- introduce ourselves (paladins) after login
+		presenceAt = Schedule(4) -- and ask who else can receive assignments
 	else -- roster changed
 		local count = GetNumRaidMembers() + GetNumPartyMembers()
 		if count > lastCount then

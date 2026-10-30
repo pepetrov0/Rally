@@ -3,7 +3,7 @@
 *Raid buff assignments for all classes — PallyPower-style, but simple*
 
 ![WoW WotLK 3.3.5a](https://img.shields.io/badge/WoW-Wrath%20of%20the%20Lich%20King%203.3.5a-9b1c1c?style=flat-square)
-![Version](https://img.shields.io/badge/version-1.3.1-blue?style=flat-square)
+![Version](https://img.shields.io/badge/version-1.3.2-blue?style=flat-square)
 
 [Features](#features) • [Installation](#installation) • [Usage](#usage) • [How buffing works](#how-buffing-works) • [PallyPower integration](#pallypower-integration)
 
@@ -65,6 +65,8 @@ One row per paladin or warrior, one column per target class:
 - **Shift-click** — set the whole paladin row at once; warrior rows are always set as a whole
 - **Right-click** — cycle to the previous blessing
 - **Hover** — tooltip showing the exact spells the cell casts
+
+A player running neither Rally nor PallyPower cannot receive assignments, so their row shows **Missing Rally or Pally power.** in place of the cells instead of stale saved squares.
 
 ## How buffing works
 
