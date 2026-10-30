@@ -933,10 +933,6 @@ local function UpdateButton()
 	lastList = list
 	RenderList()
 
-	if not debugOn and not CASTERS[MY_CLASS] and not REZ[MY_CLASS] then -- this class casts nothing: no button
-		if not inCombat then btn:Hide() end
-		return
-	end
 	-- combat lockdown refuses Show/Hide/SetAttribute on a protected button, so
 	-- only touch them out of combat; Enable/Disable and arming happen at the
 	-- combat transitions (PLAYER_REGEN_DISABLED/ENABLED), not here
@@ -947,7 +943,7 @@ local function UpdateButton()
 		flashStart = nil -- combat pauses/resets the 60s
 		return
 	end
-	btn:Show() -- visible for caster classes; the text states how much is missing
+	btn:Show() -- always visible; the text states how much is missing
 	btn:Enable()
 	if #list == 0 then -- everybody is buffed
 		flashStart = nil -- fresh 60s the next time buffs go missing
